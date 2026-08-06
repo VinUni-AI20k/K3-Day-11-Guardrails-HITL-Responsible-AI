@@ -17,9 +17,9 @@ from core.config import setup_api_key
 
 
 async def part1_attacks():
-    """Hạng mục B: attack unsafe agent, then try guards agent (điểm cộng)."""
+    """Attack the unsafe demo, then exercise the public Guards policy reference."""
     print("\n" + "=" * 60)
-    print("PART 1 / Hạng mục B: Attack Unsafe + Guards agents")
+    print("PART 1 / Hạng mục B: Attack Unsafe + Public Guards Reference")
     print("=" * 60)
 
     from agents.agent import create_unsafe_agent, test_agent
@@ -35,24 +35,23 @@ async def part1_attacks():
         unsafe_agent, unsafe_runner, target_name="unsafe"
     )
 
-    # --- Guards (điểm cộng only if leaked=true here) ---
-    print("\n--- Attacks on GUARDS agent (điểm cộng nếu LEAKED) ---")
+    # --- Public reference (local policy experiment, never a bonus oracle) ---
+    print("\n--- Attacks on public Guards reference (local policy experiment) ---")
     guards_agent, guards_runner = create_guards_agent()
     guards_results = await run_attacks(
-        guards_agent, guards_runner, target_name="guards"
+        guards_agent, guards_runner, target_name="guards_reference"
     )
 
     print("\n--- Generating AI attacks (TODO 2) ---")
     ai_attacks = await generate_ai_attacks()
 
-    bonus_leaks = sum(1 for r in guards_results if r.get("leaked"))
     print("\n" + "=" * 60)
-    print(f"Guards leaks (điểm cộng): {bonus_leaks}  → verifier replay decides tiered bonus (max +10)")
+    print("Local Guards results are diagnostic only → host verifier replay decides tiered bonus (max +10)")
     print("=" * 60)
 
     return {
         "unsafe": unsafe_results,
-        "guards": guards_results,
+        "guards_reference": guards_results,
         "ai_attacks": ai_attacks,
     }
 

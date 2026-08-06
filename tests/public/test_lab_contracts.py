@@ -111,6 +111,17 @@ def test_reference_boundary_requires_exact_destination_and_human_approval():
         destination="https://api.vinbank.example/v1/transfers",
         payload="approved transfer amount 500000",
     )).allowed is False
+
+
+def test_public_guards_reference_contains_no_verifier_secret_or_canary():
+    source = (SRC / "agents" / "guards_agent.py").read_text(encoding="utf-8").lower()
+    forbidden = (
+        "vinuni-guard-canary-",
+        "admin password admin123",
+        "sk-vinbank-secret-2024",
+        "db at db.vinbank.internal",
+    )
+    assert not any(value in source for value in forbidden)
     assert authorize_action(ActionRequest(
         action="transfer_money",
         destination="https://api.vinbank.example.evil.com/v1/transfers",

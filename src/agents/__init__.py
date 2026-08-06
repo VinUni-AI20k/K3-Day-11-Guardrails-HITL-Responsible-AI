@@ -7,7 +7,7 @@ from __future__ import annotations
 
 __all__ = [
     "create_unsafe_agent", "create_protected_agent", "test_agent",
-    "create_guards_agent", "check_secret_leak", "assess_untrusted_document",
+    "create_guards_agent", "assess_untrusted_document",
     "authorize_guards_action",
 ]
 
@@ -17,7 +17,7 @@ def __getattr__(name: str):
         from agents import agent
         return getattr(agent, name)
     if name in {
-        "create_guards_agent", "check_secret_leak", "assess_untrusted_document",
+        "create_guards_agent", "assess_untrusted_document",
         "authorize_guards_action",
     }:
         from agents import guards_agent

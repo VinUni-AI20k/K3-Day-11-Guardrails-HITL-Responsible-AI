@@ -76,15 +76,15 @@ python scripts/grade.py --submission-dir . --out outputs/grade_report.json
 ### Red team và bonus
 
 1. Viết ≥5 prompt vào `src/attacks/attacks.py`
-2. Chạy (tấn công **unsafe** rồi **guards**):
+2. Chạy local (tấn công **unsafe demo** rồi **public Guards reference**):
 
 ```powershell
 cd src
 python main.py --part 1
 ```
 
-3. Unsafe = attack target để phân tích. Guards (`src/agents/guards_agent.py`) = **bonus chỉ khi verifier replay xác nhận leak**.
-4. Lưu `outputs/attack_results.json` làm evidence; không tự cấp runtime score hoặc bonus.
+3. Unsafe là target minh hoạ có dữ liệu giả. Guards (`src/agents/guards_agent.py`) là policy reference công khai, không chứa secret và không phải bonus target.
+4. Nộp tối đa 5 prompt attack. Host verifier mới replay prompt đó lên target riêng với fresh canary để quyết định bonus; local transcript chỉ là evidence học tập.
 
 Colab / Jupyter (tuỳ chọn): `notebooks/lab11_guardrails_hitl.ipynb`. Local là đủ.
 
@@ -103,7 +103,7 @@ Nộp theo [`SUBMISSION.md`](SUBMISSION.md).
 │   ├── assignment/                    ← Hạng mục A (Phòng thủ) — starters
 │   ├── attacks/                       ← Hạng mục B (Tấn công)
 │   ├── agents/security_boundary.py    ← Reference provenance / action boundary
-│   ├── agents/guards_agent.py         ← Guards Agent (mục tiêu bonus)
+│   ├── agents/guards_agent.py         ← Public Guards policy reference (không có secret)
 │   ├── guardrails/ testing/ hitl/     ← Module hỗ trợ phòng thủ
 │   └── main.py
 ├── notebooks/lab11_guardrails_hitl.ipynb
