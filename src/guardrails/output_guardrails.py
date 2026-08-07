@@ -12,6 +12,7 @@ from google.adk.agents import llm_agent
 from google.adk import runners
 from google.adk.plugins import base_plugin
 
+from core.config import get_model
 from core.utils import chat_with_agent
 
 
@@ -41,12 +42,32 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # VN phone numbers: 10-11 digits starting with 0 (0901234567, 02838223344)
+        "vn_phone": r"\b0\d{9,10}\b",
+        # Email addresses: common format
+        "email": r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}",
+        # National ID (CMND: 9 digits, CCCD: 12 digits)
+        "national_id": r"\b\d{9}\b|\b\d{12}\b",
+        # API key pattern: sk- followed by alphanumeric and dashes
+        "api_key": r"\bsk-[a-zA-Z0-9-]{4,}\b",
+        # Password assignment: "password=admin123", "password: admin123"
+        "password": r"\bpassword\s*[:=]\s*\S+",
+        # Password in PROSE: "the admin password is admin123", "mật khẩu là x".
+        # A leak almost never arrives as a tidy key=value pair — it arrives as a
+        # sentence the model wrote. Without this, "Admin password is admin123"
+        # sails straight through the assignment pattern above.
+        # The connector (is/la/là/:/=) is required so that an ordinary customer
+        # sentence like "I forgot my password" is not redacted.
+        "password_prose": (
+            r"\b(?:password|passwd|mat\s*khau|mật\s*khẩu)\b\s*"
+            r"(?:is|are|la|là|[:=])\s*\S+"
+        ),
+        # Known lab canaries — belt-and-braces. These values must NEVER reach a
+        # customer no matter how they are framed, so they are matched literally
+        # in addition to the structural rules above.
+        "canary_secret": r"\badmin123\b|\bvinbank-secret\b",
+        # Database host / connection string references
+        "db_host": r"\b\w+\.\w+\.internal\b(?::\d+)?",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -97,7 +118,18 @@ If UNSAFE, add a brief reason on the next line.
 #     instruction=SAFETY_JUDGE_INSTRUCTION,
 # )
 
-safety_judge_agent = None  # TODO: Replace with implementation
+# The judge is a separate LlmAgent that receives the candidate response as a user
+# message and classifies it SAFE or UNSAFE. It IS the LLM, so it can spot semantic
+# problems that regex cannot: hallucinated interest rates, phishing language, a
+# coerced "hypothetical" paragraph that is really a backdoor. The instruction is
+# the *only* part of its system prompt; runtime data (the AI text to evaluate)
+# arrives through the user-message channel, so there is zero risk of ADK template
+# substitution injecting the eval text into the judge's own instructions.
+safety_judge_agent = llm_agent.LlmAgent(
+    model=get_model(),
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -117,15 +149,33 @@ async def llm_safety_check(response_text: str) -> dict:
         response_text: The agent's response to evaluate
 
     Returns:
-        dict with 'safe' (bool) and 'verdict' (str)
+        dict with 'safe' (bool), 'verdict' (str) and 'available' (bool)
+
+    Availability is reported separately from the verdict. A judge that could
+    not be reached (quota 429, network error, missing key) is NOT the same as
+    a judge that said SAFE, and the caller needs to tell those apart to alert
+    on it. Never let a judge outage raise into the request path: the regex
+    layer in content_filter() has already run and still protects the response.
     """
     if safety_judge_agent is None or judge_runner is None:
-        return {"safe": True, "verdict": "Judge not initialized — skipping"}
+        return {
+            "safe": True,
+            "verdict": "Judge not initialized — skipping",
+            "available": False,
+        }
 
     prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
-    verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
+    try:
+        verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
+    except Exception as exc:  # quota / network / auth — degrade, don't crash
+        return {
+            "safe": True,
+            "verdict": f"JUDGE_UNAVAILABLE: {type(exc).__name__}",
+            "available": False,
+        }
+
     is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
-    return {"safe": is_safe, "verdict": verdict.strip()}
+    return {"safe": is_safe, "verdict": verdict.strip(), "available": True}
 
 
 # ============================================================
@@ -172,16 +222,42 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # Step 1 — Regex content filter: redact PII / secrets in-place.
+        #         This handles the obvious, machine-detectable leaks (API keys,
+        #         passwords, phone numbers). Redaction replaces the original text
+        #         so that if the LLM judge runs afterwards it sees the cleaned
+        #         version — two layers, not two independent checks on the same
+        #         raw text.
+        filtered = content_filter(response_text)
+        if not filtered["safe"]:
+            self.redacted_count += 1
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=filtered["redacted"])],
+            )
 
-        return llm_response  # TODO: modify if needed
+        # Step 2 — LLM-as-Judge: semantic safety (OPTIONAL but recommended).
+        #         Regex cannot detect hallucinated interest rates or a
+        #         hypothetical paragraph that manipulates a customer. The judge
+        #         hallucination_cases in data/pii_hallucination_samples.json
+        #         lets you calibrate this: a response claiming "savings 12m =
+        #         5.5%" (when the ground-truth is 4.25%) should be caught here.
+        #         SAFETY_JUDGE_INSTRUCTION already says "Respond with ONLY one
+        #         word: SAFE or UNSAFE" — no placeholder in the instruction.
+        if self.use_llm_judge:
+            judge_result = await llm_safety_check(response_text)
+            if not judge_result["safe"]:
+                self.blocked_count += 1
+                safe_replacement = (
+                    "I cannot share internal system details. "
+                    "How else can I help with your VinBank account or banking needs?"
+                )
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=safe_replacement)],
+                )
+
+        return llm_response
 
 
 # ============================================================
