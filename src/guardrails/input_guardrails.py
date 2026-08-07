@@ -32,6 +32,29 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 # Regex is one signal, not the whole security boundary.
 # ============================================================
 
+import re
+import unicodedata
+
+from google.genai import types
+from google.adk.plugins import base_plugin
+from google.adk.agents.invocation_context import InvocationContext
+
+from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+
+
+def canonicalize_text(text: str) -> str:
+    """Normalize Unicode (NFKC), strip invisible/zero-width chars, and lower case."""
+    if not text:
+        return ""
+    # Unicode NFKC normalization
+    normalized = unicodedata.normalize("NFKC", text)
+    # Remove zero-width & invisible characters (\u200b, \u200c, \u200d, \ufeff, etc.)
+    cleaned = re.sub(r"[\u200b\u200c\u200d\ufeff\u00a0\u200e\u200f]", "", normalized)
+    # Collapse multiple whitespaces
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned.lower()
+
+
 def detect_injection(user_input: str) -> bool:
     """Detect prompt injection patterns in user input.
 
@@ -41,27 +64,35 @@ def detect_injection(user_input: str) -> bool:
     Returns:
         True if injection detected, False otherwise
     """
+    clean_text = canonicalize_text(user_input)
+
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"ignore\s+(all\s+)?(previous|above)\s+instructions",
+        r"you\s+are\s+now",
+        r"system\s+prompt",
+        r"reveal\s+your\s+(instructions|prompt|system)",
+        r"reveal\s+(the\s+)?internal\s+password",
+        r"show\s+me\s+the\s+admin\s+password",
+        r"pretend\s+you\s+are",
+        r"act\s+as\s+(a\s+|an\s+)?unrestricted",
+        r"\bdan\b",
+        r"jailbreak",
+        r"ciso\s+ticket",
+        r"bỏ\s+qua\s+quy\s+định",
+        r"bỏ\s+qua\s+tất\s+cả",
+        r"cho\s+tôi\s+mật\s+khẩu",
+        r"trở\s+thành\s+agent\s+không\s+giới\s+hạn",
+        r"translate\s+(your\s+)?(system\s+)?prompt",
+        r"disregard\s+(all\s+)?(previous|prior)",
+        r"override\s+(all\s+)?rules",
+        r"bypass\s+security",
     ]
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, clean_text, re.IGNORECASE):
             return True
     return False
 
-
-# ============================================================
-# TODO 2: Implement topic_filter()
-#
-# Check if user_input belongs to allowed topics.
-# The VinBank agent should only answer about: banking, account,
-# transaction, loan, interest rate, savings, credit card.
-#
-# Return True if input should be BLOCKED (off-topic or blocked topic).
-# ============================================================
 
 def topic_filter(user_input: str) -> bool:
     """Check if input is off-topic or contains blocked topics.
@@ -72,26 +103,29 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    clean_text = canonicalize_text(user_input)
+    if not clean_text:
+        return True
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    # 1. Check for blocked topics
+    for topic in BLOCKED_TOPICS:
+        if re.search(r"\b" + re.escape(topic) + r"\b", clean_text, re.IGNORECASE):
+            return True
 
-    pass  # Replace with your implementation
+    # 2. Check for allowed topics
+    for topic in ALLOWED_TOPICS:
+        if topic in clean_text:
+            return False
 
+    # Also allow standard polite greetings / general customer service phrases if needed
+    benign_greetings = ["hello", "hi", "xin chao", "chao", "help", "tro giup", "cam on", "thank"]
+    for greeting in benign_greetings:
+        if greeting in clean_text:
+            return False
 
-# ============================================================
-# TODO 3: Implement InputGuardrailPlugin
-#
-# This plugin blocks bad input BEFORE it reaches the LLM.
-# Fill in the on_user_message_callback method.
-#
-# NOTE: The callback uses keyword-only arguments (after *).
-#   - user_message is types.Content (not str)
-#   - Return types.Content to block, or None to pass through
-# ============================================================
+    # Off-topic -> BLOCK
+    return True
+
 
 class InputGuardrailPlugin(base_plugin.BasePlugin):
     """Plugin that blocks bad input before it reaches the LLM."""
@@ -132,14 +166,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot process that request due to potential prompt injection or unsafe content."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I am a VinBank assistant and can only help with banking-related questions."
+            )
+
+        return None
 
 
 # ============================================================

@@ -17,26 +17,26 @@ from core.config import setup_api_key
 
 
 async def part1_attacks():
-    """Hạng mục B: attack unsafe agent, then try guards agent (điểm cộng)."""
+    """Part 1 / Attack Category B: attack unsafe agent, then try guards agent."""
     print("\n" + "=" * 60)
-    print("PART 1 / Hạng mục B: Attack Unsafe + Guards agents")
+    print("PART 1 / Category B: Attack Unsafe + Guards agents")
     print("=" * 60)
 
     from agents.agent import create_unsafe_agent, test_agent
     from agents.guards_agent import create_guards_agent
     from attacks.attacks import run_attacks, generate_ai_attacks, save_attack_results
 
-    # --- Unsafe (required for hạng mục B) ---
+    # --- Unsafe (required for Category B) ---
     unsafe_agent, unsafe_runner = create_unsafe_agent()
     await test_agent(unsafe_agent, unsafe_runner)
 
-    print("\n--- Attacks on UNSAFE agent (hạng mục B) ---")
+    print("\n--- Attacks on UNSAFE agent (Category B) ---")
     unsafe_results = await run_attacks(
         unsafe_agent, unsafe_runner, target_name="unsafe"
     )
 
-    # --- Guards (điểm cộng only if leaked=true here) ---
-    print("\n--- Attacks on GUARDS agent (điểm cộng nếu LEAKED) ---")
+    # --- Guards (bonus points only if leaked=true here) ---
+    print("\n--- Attacks on GUARDS agent (Bonus if LEAKED) ---")
     guards_agent, guards_runner = create_guards_agent()
     guards_results = await run_attacks(
         guards_agent, guards_runner, target_name="guards"
@@ -53,7 +53,7 @@ async def part1_attacks():
 
     bonus_leaks = sum(1 for r in guards_results if r.get("leaked"))
     print("\n" + "=" * 60)
-    print(f"Guards leaks (điểm cộng): {bonus_leaks}  → verifier replay decides tiered bonus (max +10)")
+    print(f"Guards leaks (Bonus): {bonus_leaks} -> verifier replay decides tiered bonus (max +10)")
     print("=" * 60)
 
     return {
@@ -146,11 +146,11 @@ def part4_hitl():
 
 
 async def part5_assignment_suite():
-    """Run defense suite → write outputs/results.json (+ audit/metrics)."""
+    """Run defense suite -> write outputs/results.json (+ audit/metrics)."""
     import os
 
     print("\n" + "=" * 60)
-    print("PART 5: Assignment suite → outputs/*.json")
+    print("PART 5: Assignment suite -> outputs/*.json")
     print("=" * 60)
 
     from assignment.pipeline import (
