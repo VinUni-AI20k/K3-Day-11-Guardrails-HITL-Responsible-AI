@@ -5,6 +5,7 @@ Lab 11 — Part 2A: Input Guardrails
   TODO 3: Input Guardrail Plugin (ADK)
 """
 import re
+import unicodedata
 
 from google.genai import types
 from google.adk.plugins import base_plugin
@@ -32,6 +33,29 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 # Regex is one signal, not the whole security boundary.
 # ============================================================
 
+_INVISIBLE_CATEGORIES = {"Cc", "Cf", "Cs"}
+
+
+def canonicalize_text(value: object) -> str:
+    """Return a bounded, Unicode-normalized representation for policy checks."""
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = "" if value is None else str(value)
+    text = text[:100_000]
+    text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(
+        " " if unicodedata.category(char) in _INVISIBLE_CATEGORIES else char
+        for char in text
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _compact_security_text(text: str) -> str:
+    """Remove separators to expose keyword spacing obfuscation."""
+    return re.sub(r"[^\w]", "", text, flags=re.UNICODE).casefold()
+
+
 def detect_injection(user_input: str) -> bool:
     """Detect prompt injection patterns in user input.
 
@@ -41,16 +65,31 @@ def detect_injection(user_input: str) -> bool:
     Returns:
         True if injection detected, False otherwise
     """
-    INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+    normalized = canonicalize_text(user_input)
+    compact = _compact_security_text(normalized)
+    patterns = [
+        r"(?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:previous|above|prior|system|developer)?\s*(?:instructions?|rules?|directives?|prompt)",
+        r"(?:reveal|show|print|disclose|repeat|translate|reformat|encode|summari[sz]e)\b.{0,100}\b(?:system|developer|internal|hidden)?\s*(?:prompt|instructions?|configuration|config|policy|secret|password|api\s*key)",
+        r"\byou\s+are\s+now\b|\bDAN\b|developer\s+mode|unrestricted\s+mode",
+        r"(?:pretend|roleplay|act)\s+(?:that\s+)?(?:you\s+are|as|to\s+be).{0,50}(?:unrestricted|admin|developer|evil|jailbroken)",
+        r"fill\s+in.{0,30}(?:blank|password|api\s*key|connection\s*string)|complete.{0,40}(?:secret|credential|password)",
+        r"(?:confirm|verify)\b.{0,80}(?:password|api\s*key|credential|secret)",
+        r"(?:write|tell|create)\b.{0,50}(?:story|fiction|hypothetical).{0,120}(?:same|internal|real).{0,60}(?:credential|password|api\s*key|secret)",
+        r"(?:first|next|finally)\b.{0,180}(?:exact|internal).{0,60}(?:credential|host|password|api\s*key)",
+        r"\b(?:CISO|administrator|internal\s+audit|security\s+ticket)\b.{0,120}(?:reveal|export|send|password|credential|prompt)",
+        r"(?:send|post|upload|exfiltrate|forward)\b.{0,100}(?:data|secret|credential|customer|database).{0,100}(?:https?://|endpoint|webhook|external)",
+        r"(?:password|api\s*key|database\s+host|connection\s+string)\b.{0,40}(?:reveal|show|print|is|=|:)",
+        r"bỏ\s+qua\s+(?:mọi\s+)?(?:hướng\s+dẫn|chỉ\s+thị)|quên\s+(?:mọi\s+)?hướng\s+dẫn",
+        r"(?:tiết\s+lộ|cho\s+tôi\s+xem|in\s+ra|dịch)\b.{0,100}(?:mật\s+khẩu|khóa\s+api|system\s*prompt|chỉ\s+thị|cấu\s+hình|bí\s+mật)",
     ]
-
-    for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
-            return True
-    return False
+    if any(re.search(pattern, normalized, re.IGNORECASE | re.DOTALL) for pattern in patterns):
+        return True
+    compact_signatures = (
+        "ignoreallpreviousinstructions", "ignorepreviousinstructions",
+        "systemprompt", "revealpassword", "revealapikey",
+        "bỏquamọihướngdẫn", "tiếtlộmậtkhẩu", "chotôixemsystemprompt",
+    )
+    return any(signature in compact for signature in compact_signatures)
 
 
 # ============================================================
@@ -72,14 +111,21 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    input_lower = canonicalize_text(user_input).casefold()
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
-
-    pass  # Replace with your implementation
+    if not input_lower:
+        return True
+    blocked = {item.casefold() for item in BLOCKED_TOPICS}
+    if any(re.search(rf"\b{re.escape(item)}\b", input_lower) for item in blocked):
+        return True
+    allowed = {item.casefold() for item in ALLOWED_TOPICS}
+    allowed.update({
+        "ngân hàng", "tài khoản", "giao dịch", "chuyển khoản", "chuyển tiền",
+        "tiết kiệm", "lãi suất", "thẻ tín dụng", "số dư", "vay", "lừa đảo",
+        "bảo mật", "an toàn tài khoản", "bank transfer", "joint account", "fraud",
+        "bank email", "banking document", "rag document",
+    })
+    return not any(term in input_lower for term in allowed)
 
 
 # ============================================================
@@ -130,16 +176,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
             types.Content if message is blocked (return replacement)
         """
         self.total_count += 1
-        text = self._extract_text(user_message)
+        text = canonicalize_text(self._extract_text(user_message))
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
-
-        pass  # Replace with your implementation
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "Request blocked by the input safety policy because it attempts to alter trusted instructions or access protected information."
+            )
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "Request blocked by the banking scope and safety policy. Please ask a legitimate VinBank banking question."
+            )
+        return None
 
 
 # ============================================================
