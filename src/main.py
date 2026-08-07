@@ -42,7 +42,7 @@ async def part1_attacks():
         guards_agent, guards_runner, target_name="guards"
     )
 
-    print("\n--- Generating AI attacks (TODO 14) ---")
+    print("\n--- Generating AI attacks ---")
     ai_attacks = await generate_ai_attacks()
 
     save_attack_results(
@@ -85,7 +85,7 @@ async def part2_guardrails():
     # Part 2B: Output guardrails
     print("\n--- Part 2B: Output Guardrails ---")
     from guardrails.output_guardrails import test_content_filter, _init_judge
-    _init_judge()  # Initialize LLM judge if TODO 5 is done
+    _init_judge()  # Initialize the optional LLM safety judge.
     test_content_filter()
 
     # Part 2C: NeMo Guardrails
@@ -109,23 +109,23 @@ async def part3_testing():
     from testing.testing import run_comparison, print_comparison, SecurityTestPipeline
     from agents.agent import create_unsafe_agent
 
-    # TODO 9: Before vs after comparison
-    print("\n--- TODO 9: Before/After Comparison ---")
+    # Before-versus-after comparison.
+    print("\n--- Before/After Comparison ---")
     unprotected, protected = await run_comparison()
     if unprotected and protected:
         print_comparison(unprotected, protected)
     else:
-        print("Complete TODO 9 to see the comparison.")
+        print("Comparison is unavailable in this run.")
 
-    # TODO 10: Automated security pipeline
-    print("\n--- TODO 10: Security Test Pipeline ---")
+    # Automated security pipeline.
+    print("\n--- Security Test Pipeline ---")
     agent, runner = create_unsafe_agent()
     pipeline = SecurityTestPipeline(agent, runner)
     results = await pipeline.run_all()
     if results:
         pipeline.print_report(results)
     else:
-        print("Complete TODO 10 to see the pipeline report.")
+        print("Security pipeline report is unavailable in this run.")
 
 
 def part4_hitl():
@@ -136,12 +136,12 @@ def part4_hitl():
 
     from hitl.hitl import test_confidence_router, test_hitl_points
 
-    # TODO 11: Confidence Router
-    print("\n--- TODO 11: Confidence Router ---")
+    # Confidence router.
+    print("\n--- Confidence Router ---")
     test_confidence_router()
 
-    # TODO 12: HITL Decision Points
-    print("\n--- TODO 12: HITL Decision Points ---")
+    # HITL decision points.
+    print("\n--- HITL Decision Points ---")
     test_hitl_points()
 
 
@@ -159,7 +159,7 @@ async def part5_assignment_suite():
         run_assignment_suite,
     )
 
-    student_id = os.environ.get("STUDENT_ID", "").strip() or "SE00000"
+    student_id = os.environ.get("STUDENT_ID", "").strip() or "UNSET"
     try:
         plugins = build_production_plugins()
         audit, monitor = build_observability()
@@ -170,7 +170,7 @@ async def part5_assignment_suite():
         return result
     except NotImplementedError as e:
         print(
-            "Chưa implement TODO 8 / run_assignment_suite trong "
+            "Assignment suite is unavailable in "
             "src/assignment/pipeline.py — hoàn thành rồi chạy lại:\n"
             "  cd src\n"
             "  python main.py --part 5"

@@ -1,8 +1,6 @@
 """
 Lab 11 — Part 2B: Output Guardrails
-  TODO 4: Content filter (PII, secrets)
-  TODO 5: LLM-as-Judge safety check
-  TODO 6: Output Guardrail Plugin (ADK)
+  Content filtering, optional LLM-as-Judge, and the Output Guardrail Plugin.
 """
 import re
 import textwrap
@@ -16,7 +14,7 @@ from core.utils import chat_with_agent
 
 
 # ============================================================
-# TODO 4: Implement content_filter()
+# Deterministic content filtering for PII and secrets.
 #
 # Check if the response contains PII (personal info), API keys,
 # passwords, or inappropriate content.
@@ -41,12 +39,16 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        "vn_phone": r"(?<!\d)0\d{9,10}(?!\d)",
+        "email": r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}",
+        "national_id": r"(?<!\d)(?:\d{9}|\d{12})(?!\d)",
+        "api_key": r"\bsk-[a-zA-Z0-9_-]{8,}\b",
+        "lab_password": r"\badmin123\b",
+        "password": r"\b(?:password|mật\s*khẩu)\s*[:=]\s*\S+",
+        "secret": r"\b(?:secret|credential|token)\s*[:=]\s*\S+",
+        "internal_db": r"\b[\w.-]+\.internal(?::\d+)?\b",
+        "system_prompt": r"\b(?:system|developer)\s+prompt\b",
+        "internal_answer": r"\b(?:answer\s+key|correct\s+answer|đáp\s+án\s+nội\s+bộ)\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -63,7 +65,7 @@ def content_filter(response: str) -> dict:
 
 
 # ============================================================
-# TODO 5: Implement LLM-as-Judge
+# Optional LLM-as-Judge safety check.
 #
 # Create a separate agent (judge) to check response safety.
 # The judge classifies responses as SAFE or UNSAFE.
@@ -89,15 +91,13 @@ Respond with ONLY one word: SAFE or UNSAFE
 If UNSAFE, add a brief reason on the next line.
 """
 
-# TODO: Create safety_judge_agent using LlmAgent
-# Hint:
-# safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-2.0-flash",
-#     name="safety_judge",
-#     instruction=SAFETY_JUDGE_INSTRUCTION,
-# )
-
-safety_judge_agent = None  # TODO: Replace with implementation
+# The judge receives candidate output as a user message, keeping policy
+# instructions separate from the untrusted text being evaluated.
+safety_judge_agent = llm_agent.LlmAgent(
+    model="gemini-3.1-flash-lite",
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -129,7 +129,7 @@ async def llm_safety_check(response_text: str) -> dict:
 
 
 # ============================================================
-# TODO 6: Implement OutputGuardrailPlugin
+# ADK callback that applies deterministic filtering before judging.
 #
 # This plugin checks the agent's output BEFORE sending to the user.
 # Uses after_model_callback to intercept LLM responses.
@@ -172,16 +172,33 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        filtered = content_filter(response_text)
+        candidate = filtered["redacted"]
+        if candidate != response_text:
+            self.redacted_count += 1
 
-        return llm_response  # TODO: modify if needed
+        # Deterministic policy is authoritative for secrets/PII. Do not spend
+        # another Gemini call judging content that is already unsafe; fail
+        # closed immediately and keep the sensitive original out of output.
+        if not filtered["safe"]:
+            self.blocked_count += 1
+            candidate = (
+                "I cannot share internal system details or protected customer data. "
+                "Please ask a VinBank banking question."
+            )
+        elif self.use_llm_judge:
+            judge = await llm_safety_check(response_text)
+            if not judge["safe"]:
+                self.blocked_count += 1
+                candidate = (
+                    "I cannot share internal system details or protected customer data. "
+                    "Please ask a VinBank banking question."
+                )
+        if candidate != response_text:
+            llm_response.content = types.Content(
+                role="model", parts=[types.Part.from_text(text=candidate)]
+            )
+        return llm_response
 
 
 # ============================================================
