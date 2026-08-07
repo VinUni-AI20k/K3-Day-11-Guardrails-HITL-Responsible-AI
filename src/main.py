@@ -18,47 +18,15 @@ from pathlib import Path
 
 from core.config import setup_api_key
 
+# A default Windows console is cp1252 and raises UnicodeEncodeError on the
+# Vietnamese text printed below, which would kill the run before any output
+# file is written.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 STUDENT_ID = "2A202601211"
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = ROOT / "outputs"
-
-
-def _save_attack_results(unsafe_results, guards_results, ai_attacks):
-    """Write outputs/attack_results.json for submission."""
-    from attacks.attacks import normalize_ai_attacks
-
-    OUTPUTS.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "student_id": STUDENT_ID,
-        "unsafe_attacks": [
-            {
-                "id": r["id"],
-                "category": r["category"],
-                "input": r["input"],
-                "response_preview": r.get("response_preview", "")[:300],
-                "leaked": bool(r.get("leaked")),
-                "target": "unsafe",
-            }
-            for r in unsafe_results
-        ],
-        "guards_attacks": [
-            {
-                "id": r["id"],
-                "category": r["category"],
-                "input": r["input"],
-                "response_preview": r.get("response_preview", "")[:300],
-                "leaked": bool(r.get("leaked")),
-                "target": "guards",
-                "notes": "Chỉ leaked=true trên guards mới có điểm cộng",
-            }
-            for r in guards_results
-        ],
-        "ai_generated_attacks": normalize_ai_attacks(ai_attacks),
-    }
-    path = OUTPUTS / "attack_results.json"
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nSaved {path}")
-    return payload
 
 
 async def part1_attacks():
@@ -69,7 +37,7 @@ async def part1_attacks():
 
     from agents.agent import create_unsafe_agent, test_agent
     from agents.guards_agent import create_guards_agent
-    from attacks.attacks import run_attacks, generate_ai_attacks
+    from attacks.attacks import run_attacks, generate_ai_attacks, save_attack_results
 
     unsafe_agent, unsafe_runner = create_unsafe_agent()
     await test_agent(unsafe_agent, unsafe_runner)
@@ -85,15 +53,20 @@ async def part1_attacks():
         guards_agent, guards_runner, target_name="guards"
     )
 
-    print("\n--- Generating AI attacks (TODO 2) ---")
+    print("\n--- Generating AI attacks (TODO 14) ---")
     ai_attacks = await generate_ai_attacks()
+
+    save_attack_results(
+        unsafe_results=unsafe_results,
+        guards_results=guards_results,
+        ai_attacks=ai_attacks,
+        student_id=STUDENT_ID,
+    )
 
     bonus_leaks = sum(1 for r in guards_results if r.get("leaked"))
     print("\n" + "=" * 60)
-    print(f"Guards leaks (điểm cộng): {bonus_leaks}  → +{min(10, bonus_leaks * 2)} pts if verified")
+    print(f"Guards leaks (điểm cộng): {bonus_leaks}  → verifier replay decides tiered bonus (max +10)")
     print("=" * 60)
-
-    _save_attack_results(unsafe_results, guards_results, ai_attacks)
 
     return {
         "unsafe": unsafe_results,
@@ -138,7 +111,7 @@ async def part2_guardrails():
     # Part 2B: Output guardrails
     print("\n--- Part 2B: Output Guardrails ---")
     from guardrails.output_guardrails import test_content_filter, _init_judge
-    _init_judge()  # Initialize LLM judge if TODO 7 is done
+    _init_judge()  # Initialize LLM judge if TODO 5 is done
     test_content_filter()
 
     # Part 2C: NeMo Guardrails
@@ -162,23 +135,23 @@ async def part3_testing():
     from testing.testing import run_comparison, print_comparison, SecurityTestPipeline
     from agents.agent import create_unsafe_agent
 
-    # TODO 10: Before vs after comparison
-    print("\n--- TODO 10: Before/After Comparison ---")
+    # TODO 9: Before vs after comparison
+    print("\n--- TODO 9: Before/After Comparison ---")
     unprotected, protected = await run_comparison()
     if unprotected and protected:
         print_comparison(unprotected, protected)
     else:
-        print("Complete TODO 10 to see the comparison.")
+        print("Complete TODO 9 to see the comparison.")
 
-    # TODO 11: Automated security pipeline
-    print("\n--- TODO 11: Security Test Pipeline ---")
+    # TODO 10: Automated security pipeline
+    print("\n--- TODO 10: Security Test Pipeline ---")
     agent, runner = create_unsafe_agent()
     pipeline = SecurityTestPipeline(agent, runner)
     results = await pipeline.run_all()
     if results:
         pipeline.print_report(results)
     else:
-        print("Complete TODO 11 to see the pipeline report.")
+        print("Complete TODO 10 to see the pipeline report.")
 
 
 def part4_hitl():
@@ -187,15 +160,16 @@ def part4_hitl():
     print("PART 4: Human-in-the-Loop Design")
     print("=" * 60)
 
-    from hitl.hitl import test_confidence_router, test_hitl_points
+    from hitl.hitl import test_confidence_router, test_hitl_points, demo_review_lifecycle
 
-    # TODO 12: Confidence Router
-    print("\n--- TODO 12: Confidence Router ---")
+    # TODO 11: Confidence Router
+    print("\n--- TODO 11: Confidence Router ---")
     test_confidence_router()
 
-    # TODO 13: HITL Decision Points
-    print("\n--- TODO 13: HITL Decision Points ---")
+    # TODO 12: HITL Decision Points + review lifecycle
+    print("\n--- TODO 12: HITL Decision Points ---")
     test_hitl_points()
+    demo_review_lifecycle()
 
 
 async def main(parts=None):

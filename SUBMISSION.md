@@ -1,24 +1,11 @@
 # Hướng dẫn nộp bài — Day 11
 
+**Đề bài:** [`assignment11.md`](assignment11.md) · File này chỉ nói **cách đóng gói và nộp**.
+
 ## Bài tập cá nhân
 
-Bài Day 11 **làm một mình**, gồm 2 hạng mục:
-
-
-| Hạng mục         | Tỷ lệ | Điểm                                                       |
-| ---------------- | ----- | ---------------------------------------------------------- |
-| **A. Phòng thủ** | 80%   | 80                                                         |
-| **B. Tấn công**  | 20%   | 20                                                         |
-| **Điểm cộng**    | —     | Tối đa +10 — chỉ khi phá được **Guards Agent** (lộ secret) |
-
-
-**Gợi ý:** làm Phòng thủ (A) trước, Tấn công (B) sau.
-
-- Mỗi bài gắn **một MSSV**
-- Không nộp repo nhóm, không chia sẻ bài nộp
-- Thảo luận ý tưởng được; code và báo cáo phải là của bạn
-
-Đề bài chi tiết: `[assignment11_defense_pipeline.md](assignment11_defense_pipeline.md)`.
+Bài Day 11 **làm một mình**. Điểm theo [`assignment11.md`](assignment11.md).
+Một số bảng A/B bên dưới là checklist artifact (`results.json` / `attack_results.json`), không thay rubric trong đề.
 
 ---
 
@@ -236,6 +223,7 @@ Khớp `[schemas/results.schema.json](schemas/results.schema.json)`. Ví dụ:
 ## Tự kiểm trước khi nộp
 
 ```powershell
+# Đảm bảo đang trong venv: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pytest tests/smoke -q
 pytest tests/public -q

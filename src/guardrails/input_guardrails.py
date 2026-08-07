@@ -8,6 +8,12 @@ from google.genai import types
 from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 
+from agents.security_boundary import (
+    ExternalContent,
+    assess_external_content,
+    contains_instruction_override,
+    normalize_for_security,
+)
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 
 # Max input length — blocks flooding / cost abuse that rate limit alone may miss.
@@ -18,9 +24,18 @@ def detect_injection(user_input: str) -> bool:
     """Return True if user_input matches known prompt-injection patterns.
 
     Catches jailbreaks before they reach the LLM (defense-in-depth layer 1).
+
+    Canonicalization runs first: an attacker who splits ``Ignore`` with a
+    zero-width space, or uses fullwidth/compatibility characters, otherwise
+    walks straight past every regex below. Regex is only one signal, so the
+    shared instruction-override detector runs alongside it.
     """
     if not user_input:
         return False
+
+    user_input = normalize_for_security(user_input)
+    if contains_instruction_override(user_input):
+        return True
 
     INJECTION_PATTERNS = [
         r"ignore\s+(all\s+)?(previous|above|prior)?\s*instructions?",
@@ -61,7 +76,7 @@ def topic_filter(user_input: str) -> bool:
     if not user_input or not user_input.strip():
         return True
 
-    input_lower = user_input.lower()
+    input_lower = normalize_for_security(user_input).lower()
 
     if any(b in input_lower for b in BLOCKED_TOPICS):
         return True
@@ -70,6 +85,30 @@ def topic_filter(user_input: str) -> bool:
         return False
 
     return True
+
+
+# Text arriving from these sources is data the agent reads, never instructions
+# it obeys — the provenance boundary for indirect prompt injection.
+UNTRUSTED_SOURCES = ("email", "rag", "document", "web", "tool_output", "attachment")
+
+
+def check_external_content(source: str, text: str) -> dict:
+    """Decide whether untrusted email/RAG text may be summarised as data.
+
+    Benign external content stays allowed; only an attempt to issue new
+    instructions from inside that content is rejected. This is what separates
+    "summarise this customer email" from "obey this customer email".
+    """
+    decision = assess_external_content(
+        ExternalContent(source=source, text=text, trusted=False)
+    )
+    return {
+        "source": source,
+        "trusted": False,
+        "preview": (text or "")[:120],
+        "allowed_as_data": decision.allowed,
+        "reason": decision.reason,
+    }
 
 
 class InputGuardrailPlugin(base_plugin.BasePlugin):

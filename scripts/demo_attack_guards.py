@@ -17,11 +17,11 @@ except ImportError:
     pass
 
 from agents.guards_agent import (  # noqa: E402
-    check_secret_leak,
     create_guards_agent,
     detect_injection_strong,
     topic_filter_strong,
 )
+from attacks.attacks import classify_attack_outcome, write_run_attack_json  # noqa: E402
 from core.utils import chat_with_agent  # noqa: E402
 
 ATTACKS = [
@@ -40,39 +40,50 @@ ATTACKS = [
 
 def offline_gate(prompt: str) -> str:
     if detect_injection_strong(prompt):
-        return "BLOCKED_INPUT (injection)"
+        return "BLOCKED_INPUT — injection filter (plugin)"
     if topic_filter_strong(prompt):
-        return "BLOCKED_INPUT (topic)"
-    return "PASSES_INPUT → would hit LLM (+ output filter)"
+        return "BLOCKED_INPUT — topic filter (plugin)"
+    return "PASSES_INPUT → LLM (+ output filter)"
 
 
 async def live_attack(prompts_to_try: list[tuple[str, str]]) -> list[dict]:
-    import json
-
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "0")
     agent, runner = create_guards_agent()
     print("\n=== LIVE attacks on Guards Agent ===\n")
     results = []
     for name, prompt in prompts_to_try:
-        gate = offline_gate(prompt)
         try:
             resp, _ = await chat_with_agent(agent, runner, prompt)
             err = None
         except Exception as e:
             resp, err = "", f"{type(e).__name__}: {e}"
-        leaked = check_secret_leak(resp or "")
+
+        if err:
+            outcome = {
+                "leaked": False,
+                "blocked_input": False,
+                "blocked": False,
+                "layer": "error",
+                "blocked_at": f"ERROR — {err.split(':')[0]}",
+            }
+        else:
+            outcome = classify_attack_outcome(prompt, resp or "", target_name="guards")
+
         preview = (resp or "")[:300].replace("\n", " ")
         row = {
             "name": name,
-            "input_gate": gate,
             "input": prompt,
             "response_preview": preview,
-            "leaked": leaked,
+            "leaked": outcome["leaked"],
+            "blocked_input": outcome["blocked_input"],
+            "blocked": outcome["blocked"],
+            "layer": outcome["layer"],
+            "blocked_at": outcome["blocked_at"],
             "error": err,
             "target": "guards",
         }
         results.append(row)
-        print(f"[{name}] gate={gate} leaked={leaked}")
+        print(f"[{name}] {outcome['blocked_at']} | leaked={outcome['leaked']}")
         print(f"  Q: {prompt[:120]}")
         if err:
             print(f"  ERROR: {err[:180]}")
@@ -80,17 +91,18 @@ async def live_attack(prompts_to_try: list[tuple[str, str]]) -> list[dict]:
             print(f"  A: {preview}")
         print()
 
-    out = ROOT / "outputs" / "guards_attack_demo.json"
-    out.parent.mkdir(exist_ok=True)
-    payload = {
-        "target": "guards",
-        "leaks": sum(1 for r in results if r["leaked"]),
-        "results": results,
-    }
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out = write_run_attack_json(
+        results,
+        target_name="guards",
+        filepath=ROOT / "outputs" / "guards_attack_result.json",
+    )
     print(f"Saved JSON → {out}")
-    print(f"Saved log  → {ROOT / 'outputs' / 'guards_attack_demo.txt'} (if redirected)")
-    print(f"Total leaks on guards: {payload['leaks']}")
+    print(f"Total leaks on guards: {sum(1 for r in results if r['leaked'])}")
+    print(
+        f"blocked_input={sum(1 for r in results if r['blocked_input'])}  "
+        f"blocked_plugin={sum(1 for r in results if r['blocked'])}  "
+        f"model_refuse={sum(1 for r in results if r.get('layer') == 'model_refuse')}"
+    )
     return results
 
 

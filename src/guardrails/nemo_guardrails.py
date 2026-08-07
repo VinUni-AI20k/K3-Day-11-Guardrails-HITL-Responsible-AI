@@ -1,6 +1,6 @@
 """
 Lab 11 — Part 2C: NeMo Guardrails
-  TODO 9: Define Colang rules for banking safety
+  TODO 7: Define Colang rules for banking safety
 """
 import textwrap
 
@@ -34,7 +34,7 @@ NEMO_YAML_CONFIG = textwrap.dedent("""\
 
 
 # ============================================================
-# TODO 9: Define Colang rules
+# TODO 7: Define Colang rules
 #
 # Add at least 3 NEW user/bot message definitions and
 # corresponding flows to handle:
