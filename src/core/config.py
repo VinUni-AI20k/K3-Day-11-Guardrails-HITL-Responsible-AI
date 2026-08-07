@@ -5,11 +5,31 @@ import os
 
 
 def setup_api_key():
-    """Load Google API key from environment or prompt."""
-    if "GOOGLE_API_KEY" not in os.environ:
-        os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key: ")
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-    print("API key loaded.")
+    """Select the configured provider without changing existing fallbacks."""
+    requested = os.environ.get("AI_PROVIDER", "").casefold()
+    if requested == "gemini" and os.environ.get("GOOGLE_API_KEY"):
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+        print("Google API key loaded.")
+        return
+    if requested == "openrouter" and os.environ.get("OPENROUTER_API_KEY"):
+        print("OpenRouter API key loaded.")
+        return
+    if os.environ.get("OPENAI_API_KEY"):
+        os.environ["AI_PROVIDER"] = "openai"
+        print("OpenAI API key loaded.")
+        return
+    if os.environ.get("OPENROUTER_API_KEY"):
+        os.environ["AI_PROVIDER"] = "openrouter"
+        print("OpenRouter API key loaded.")
+        return
+    if os.environ.get("GOOGLE_API_KEY"):
+        os.environ["AI_PROVIDER"] = "gemini"
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+        print("Google API key loaded.")
+        return
+    os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key: ").strip()
+    os.environ["AI_PROVIDER"] = "openai"
+    print("OpenAI API key loaded.")
 
 
 # Allowed banking topics (used by topic_filter)

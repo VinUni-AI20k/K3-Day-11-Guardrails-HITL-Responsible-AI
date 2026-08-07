@@ -1,5 +1,5 @@
 """
-Assignment 11 — Monitoring & Alerts starter (TODO).
+Assignment 11 — Monitoring and alerts implementation.
 
 Tracks block rate, rate-limit hits, judge fail rate.
 Fires alerts when thresholds are exceeded.
@@ -35,12 +35,26 @@ class MonitoringAlert:
     judge_fails: int = 0
 
     def check_metrics(self) -> list[Alert]:
-        """TODO: compute rates, append Alert objects when thresholds exceeded."""
-        raise NotImplementedError("Implement MonitoringAlert.check_metrics")
+        """Compute rates and append alerts when thresholds are exceeded."""
+        block_rate = self.blocked_requests / self.total_requests if self.total_requests else 0.0
+        judge_rate = self.judge_fails / self.judge_checks if self.judge_checks else 0.0
+        self.alerts = []
+        if block_rate >= self.block_rate_threshold:
+            self.alerts.append(Alert("block_rate", block_rate, self.block_rate_threshold, "Blocked request rate exceeded threshold"))
+        if self.rate_limit_hits >= self.rate_limit_hit_threshold:
+            self.alerts.append(Alert("rate_limit_hits", float(self.rate_limit_hits), float(self.rate_limit_hit_threshold), "Rate-limit hits exceeded threshold"))
+        if judge_rate >= self.judge_fail_rate_threshold and self.judge_checks:
+            self.alerts.append(Alert("judge_fail_rate", judge_rate, self.judge_fail_rate_threshold, "LLM judge failure rate exceeded threshold"))
+        return self.alerts
 
     def export_json(self, filepath: str = "outputs/metrics.json"):
-        """TODO: write metrics + alerts to JSON."""
-        raise NotImplementedError("Implement MonitoringAlert.export_json")
+        """Write metrics and alerts to JSON."""
+        import pathlib
+        path = pathlib.Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.check_metrics()
+        path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
 
     def snapshot(self) -> dict:
         block_rate = (

@@ -1,10 +1,9 @@
 """
 Lab 11 — Part 2A: Input Guardrails
-  TODO 1: Injection detection (normalization + layered signals)
-  TODO 2: Topic filter
-  TODO 3: Input Guardrail Plugin (ADK)
+  Injection detection, topic filtering, and the Input Guardrail Plugin.
 """
 import re
+import unicodedata
 
 from google.genai import types
 from google.adk.plugins import base_plugin
@@ -14,7 +13,7 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 
 
 # ============================================================
-# TODO 1: Implement detect_injection()
+# Injection detection uses normalized text and layered signals.
 #
 # Canonicalize Unicode/invisible spacing, then detect prompt injection.
 # The function takes user_input (str) and returns True if injection is detected.
@@ -41,20 +40,33 @@ def detect_injection(user_input: str) -> bool:
     Returns:
         True if injection detected, False otherwise
     """
+    # Canonicalize before matching so zero-width characters, compatibility
+    # Unicode and unusual whitespace cannot create a second policy language.
+    normalized = unicodedata.normalize("NFKC", user_input or "")
+    normalized = re.sub(r"[\u0000-\u001f\u007f\u200b\u200c\u200d\u2060\ufeff]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\bignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions?\b",
+        r"\b(?:disregard|forget|override)\b.{0,40}\b(?:instructions?|rules?|system\s+prompt)\b",
+        r"\byou\s+are\s+now\b",
+        r"\b(?:system|developer)\s+prompt\b",
+        r"\b(?:reveal|show|print|disclose)\b.{0,60}\b(?:instructions?|prompt|secret|password|api\s*key)\b",
+        r"\bpretend\s+(?:you\s+are|to\s+be)\b",
+        r"\bact\s+as\s+(?:an?\s+)?(?:unrestricted|jailbroken|evil)\b",
+        r"\b(?:translate|encode|summarize)\b.{0,60}\b(?:system\s+prompt|secret|credentials?)\b",
+        r"\b(?:fill\s+in\s+the\s+blank|confirm)\b.{0,80}\b(?:password|api\s*key|secret)\b",
+        r"\b(?:bỏ\s+qua|tiết\s+lộ|cho\s+(?:tôi|ta)\s+xem)\b.{0,60}\b(?:hướng\s+dẫn|mật\s+khẩu|system\s*prompt|api)\b",
     ]
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, normalized, re.IGNORECASE):
             return True
     return False
 
 
 # ============================================================
-# TODO 2: Implement topic_filter()
+# Topic filtering is applied after normalization.
 #
 # Check if user_input belongs to allowed topics.
 # The VinBank agent should only answer about: banking, account,
@@ -72,18 +84,20 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    normalized = unicodedata.normalize("NFKC", user_input or "")
+    input_lower = re.sub(r"\s+", " ", normalized).casefold()
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
-
-    pass  # Replace with your implementation
+    if any(topic in input_lower for topic in BLOCKED_TOPICS):
+        return True
+    # SQL-shaped input is not a normal customer question. Reject it before
+    # topic matching so words such as "accounts" cannot create a false allow.
+    if re.search(r"\b(?:select|insert|update|delete|drop)\b.{0,80}\b(?:from|into|set|table|where)\b", input_lower):
+        return True
+    return not any(topic in input_lower for topic in ALLOWED_TOPICS)
 
 
 # ============================================================
-# TODO 3: Implement InputGuardrailPlugin
+# ADK callback that enforces the input policy before model execution.
 #
 # This plugin blocks bad input BEFORE it reaches the LLM.
 # Fill in the on_user_message_callback method.
@@ -132,14 +146,18 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
-
-        pass  # Replace with your implementation
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot process requests that attempt to override instructions "
+                "or access internal information. I can help with VinBank banking questions."
+            )
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I'm a VinBank assistant and can only help with banking-related questions."
+            )
+        return None
 
 
 # ============================================================

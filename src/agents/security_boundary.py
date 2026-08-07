@@ -2,7 +2,7 @@
 
 This is deliberately framework-independent so students can inspect the policy
 and reason about the difference between untrusted content and an authorised
-action. It is not a solution for the TODOs in ``src/assignment``.
+action. It is not a replacement for the assignment modules in ``src/assignment``.
 """
 from __future__ import annotations
 
