@@ -145,11 +145,9 @@ env.bak/
 venv.bak/
 
 # Local grade / run outputs
+# NOTE: SUBMISSION.md requires results.json, attack_results.json, audit_log.json
+# and metrics.json to be committed, so only the local grader report stays ignored.
 outputs/grade_report.json
-outputs/results.json
-outputs/attack_results.json
-outputs/audit_log.json
-outputs/metrics.json
 
 # Spyder project settings
 .spyderproject

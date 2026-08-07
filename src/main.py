@@ -15,6 +15,13 @@ import argparse
 
 from core.config import setup_api_key
 
+# Windows consoles default to cp1252, and every part prints Vietnamese prompts
+# and agent replies. Without this the run dies with UnicodeEncodeError partway
+# through — after the API calls were already spent but before any JSON is saved.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 async def part1_attacks():
     """Hạng mục B: attack unsafe agent, then try guards agent (điểm cộng)."""
@@ -145,6 +152,28 @@ def part4_hitl():
     test_hitl_points()
 
 
+def _student_id_from_repo() -> str:
+    """Recover the MSSV from the submission folder name.
+
+    SUBMISSION.md fixes the folder as ``K-<khóa>-<Họ tên>-<MSSV>`` and names
+    ``report/<MSSV>_report.md``, so the ID is already on disk. Without this,
+    forgetting to export STUDENT_ID silently stamps every artifact 'SE00000'
+    and the graded submission carries the wrong identity — a failure mode with
+    no error message anywhere.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+
+    report = next(iter(sorted((root / "report").glob("*_report.md"))), None)
+    if report is not None:
+        return report.name.rsplit("_report", 1)[0]
+
+    match = re.search(r"\b(\d[A-Za-z]\d{9})\b", root.name)
+    return match.group(1) if match else "SE00000"
+
+
 async def part5_assignment_suite():
     """Run defense suite → write outputs/results.json (+ audit/metrics)."""
     import os
@@ -159,7 +188,7 @@ async def part5_assignment_suite():
         run_assignment_suite,
     )
 
-    student_id = os.environ.get("STUDENT_ID", "").strip() or "SE00000"
+    student_id = os.environ.get("STUDENT_ID", "").strip() or _student_id_from_repo()
     try:
         plugins = build_production_plugins()
         audit, monitor = build_observability()
