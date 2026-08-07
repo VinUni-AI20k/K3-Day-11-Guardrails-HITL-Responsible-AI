@@ -5,6 +5,7 @@ Lab 11 — Part 2A: Input Guardrails
   TODO 3: Input Guardrail Plugin (ADK)
 """
 import re
+import unicodedata
 
 from google.genai import types
 from google.adk.plugins import base_plugin
@@ -32,23 +33,52 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 # Regex is one signal, not the whole security boundary.
 # ============================================================
 
+ZERO_WIDTH = "​‌‍﻿⁠­"  # ZWSP, ZWNJ, ZWJ, BOM, word-joiner, soft hyphen
+
+# Injection markers survive spacing/Unicode tricks only if we canonicalize first.
+INJECTION_PATTERNS = [
+    r"ignore\s+(?:all\s+|any\s+)?(?:previous|above|prior|earlier)\s+instructions?",
+    r"disregard\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|rules?)",
+    r"you\s+are\s+now\b",
+    r"system\s+(?:prompt|instruction|message)",
+    r"(?:reveal|disclose|show|print|output|translate|encode|repeat)\b[^.\n]{0,40}"
+    r"(?:your\s+)?(?:instructions?|system\s+prompt|secret|password|credential|api\s*key|internal)",
+    r"pretend\s+(?:you\s+are|to\s+be)",
+    r"act\s+as\s+(?:a\s+|an\s+)?(?:unrestricted|dan\b|jailbroken|developer\s+mode)",
+    r"b[oỏọ]\s*qua\s+(?:m[oọ]i\s+)?(?:h[uư][oơ]ng\s*d[aâ]n|ch[iỉ]\s*d[aâ]n|quy\s*t[aăắ]c)",
+    r"ti[eê]t\s*l[oộ]\s+(?:m[aậ]t\s*kh[aâ]u|api|th[oô]ng\s*tin\s*n[oộ]i\s*b[oộ])",
+]
+
+
+def normalize_for_security(text: str) -> str:
+    """Canonicalize Unicode and strip invisible characters.
+
+    Why: attackers hide markers with zero-width joiners or full-width
+    look-alikes. Detection must run on one canonical form, otherwise a
+    single \\u200b defeats every regex below.
+    """
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = normalized.translate(str.maketrans("", "", ZERO_WIDTH))
+    return re.sub(r"\s+", " ", normalized)
+
+
 def detect_injection(user_input: str) -> bool:
-    """Detect prompt injection patterns in user input.
+    """Detect prompt-injection intent in user or untrusted external text.
+
+    Why: this is the first hard gate. External email/RAG content is data,
+    never instruction — an imperative aimed at the model inside that data
+    is an attack even when the surrounding sentence looks benign.
+    Regex is one signal, not the whole boundary (judge + egress back it up).
 
     Args:
-        user_input: The user's message
+        user_input: The user's message, or untrusted email/RAG content
 
     Returns:
         True if injection detected, False otherwise
     """
-    INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
-    ]
-
+    normalized = normalize_for_security(user_input)
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, normalized, re.IGNORECASE):
             return True
     return False
 
@@ -63,8 +93,18 @@ def detect_injection(user_input: str) -> bool:
 # Return True if input should be BLOCKED (off-topic or blocked topic).
 # ============================================================
 
+def _strip_accents(text: str) -> str:
+    """Fold Vietnamese diacritics so 'tài khoản' matches the ASCII allowlist."""
+    decomposed = unicodedata.normalize("NFD", text)
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+
+
 def topic_filter(user_input: str) -> bool:
-    """Check if input is off-topic or contains blocked topics.
+    """Return True when the message must be BLOCKED as off-topic/forbidden.
+
+    Why: a banking assistant with a narrow topic surface is a much smaller
+    attack surface. Refusing 'how to cook pasta' also refuses most creative
+    -writing jailbreak framings for free.
 
     Args:
         user_input: The user's message
@@ -72,14 +112,20 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    folded = _strip_accents(normalize_for_security(user_input).lower())
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    # 1. Explicitly forbidden subject matter — reject regardless of context.
+    for blocked in BLOCKED_TOPICS:
+        if blocked in folded:
+            return True
 
-    pass  # Replace with your implementation
+    # 2. Allowlist: the agent answers banking questions and nothing else.
+    for allowed in ALLOWED_TOPICS:
+        if _strip_accents(allowed.lower()) in folded:
+            return False
+
+    # 3. Default deny — unknown topic is off-topic.
+    return True
 
 
 # ============================================================
@@ -132,14 +178,22 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
+        # Injection first: an injection attempt is an attack even when it is
+        # dressed up in on-topic banking vocabulary, so it must not be able to
+        # pass by satisfying the topic allowlist.
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot process that request. I only help with VinBank banking questions."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I'm a VinBank assistant and can only help with banking-related questions."
+            )
+
+        return None
 
 
 # ============================================================
