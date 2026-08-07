@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 
-TRUSTED_EGRESS_HOSTS = frozenset({"api.vinbank.example", "cases.vinbank.example"})
+TRUSTED_EGRESS_DESTINATIONS = frozenset({
+    "https://api.vinbank.example/v1/transfers",
+})
 HIGH_RISK_ACTIONS = frozenset({
     "transfer_money", "close_account", "change_password",
     "delete_data", "update_personal_info",
@@ -23,6 +25,8 @@ SECRET_PATTERNS = (
     r"sk-[a-z0-9-]{8,}",
     r"db\.vinbank\.internal(?::\d+)?",
     r"(?:password|mật\s*khẩu)\s*[:=]\s*\S+",
+    r"(?<!\d)(?:\+?84|0)(?:[ .-]?\d){9,10}(?!\d)",
+    r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b",
 )
 INSTRUCTION_OVERRIDE_PATTERNS = (
     r"ignore\s+(?:all\s+)?(?:previous|above|prior)?\s*instructions?",
@@ -78,7 +82,22 @@ def contains_secret(text: str) -> bool:
 def contains_instruction_override(text: str) -> bool:
     """Identify instruction-like text after Unicode normalization."""
     normalized = normalize_for_security(text)
-    return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in INSTRUCTION_OVERRIDE_PATTERNS)
+    if any(
+        re.search(pattern, normalized, re.IGNORECASE)
+        for pattern in INSTRUCTION_OVERRIDE_PATTERNS
+    ):
+        return True
+    # Catch basic character-spacing obfuscation after canonicalization.
+    compact = re.sub(r"[^a-z0-9à-ỹ]", "", normalized.casefold())
+    return any(
+        phrase in compact
+        for phrase in (
+            "ignoreallpreviousinstructions",
+            "ignorepreviousinstructions",
+            "bỏquamọihướngdẫn",
+            "tiếtlộmậtkhẩu",
+        )
+    )
 
 
 def assess_external_content(content: ExternalContent) -> ActionDecision:
@@ -92,8 +111,20 @@ def assess_external_content(content: ExternalContent) -> ActionDecision:
 
 def authorize_action(request: ActionRequest) -> ActionDecision:
     """Enforce exact destination allowlist, secret egress block and HITL for risk."""
-    destination = urlparse(request.destination)
-    if destination.scheme != "https" or destination.hostname not in TRUSTED_EGRESS_HOSTS:
+    try:
+        destination = urlparse(request.destination)
+        port = destination.port
+    except (TypeError, ValueError):
+        return ActionDecision(False, "destination is malformed", False)
+    canonical = destination.geturl()
+    if (
+        destination.username
+        or destination.password
+        or port not in (None, 443)
+        or destination.fragment
+        or destination.query
+        or canonical not in TRUSTED_EGRESS_DESTINATIONS
+    ):
         return ActionDecision(False, "destination is not allowlisted", False)
     if contains_secret(request.payload):
         return ActionDecision(False, "payload contains protected data", False)

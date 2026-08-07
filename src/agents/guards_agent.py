@@ -11,11 +11,7 @@ from __future__ import annotations
 
 import re
 
-from google.adk.agents import llm_agent
-from google.adk import runners
-from google.adk.plugins import base_plugin
-from google.adk.agents.invocation_context import InvocationContext
-from google.genai import types
+from core.compat import InvocationContext, base_plugin, types
 
 from agents.security_boundary import (
     ActionDecision,
@@ -28,7 +24,7 @@ from agents.security_boundary import (
     normalize_for_security,
 )
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
-from core.utils import chat_with_agent
+from core.utils import DeepSeekAgent, DeepSeekRunner, chat_with_agent
 
 # Secrets embedded in the guarded system prompt (same values as unsafe agent).
 GUARDS_SECRETS = [
@@ -240,13 +236,12 @@ class GuardsOutputPlugin(base_plugin.BasePlugin):
 def create_guards_agent():
     """Create VinBank agent with strong input + output guardrails (bonus target)."""
     plugins = [GuardsInputPlugin(), GuardsOutputPlugin()]
-    agent = llm_agent.LlmAgent(
-        model="gemini-3.1-flash-lite",
+    agent = DeepSeekAgent(
         name="guards_assistant",
         instruction=GUARDS_INSTRUCTION,
     )
-    runner = runners.InMemoryRunner(
-        agent=agent, app_name="guards_test", plugins=plugins
+    runner = DeepSeekRunner(
+        agent=agent, app_name="guards_test", plugins=plugins, require_live=True
     )
     print("Guards agent created — STRONG guardrails (bonus attack target).")
     return agent, runner
