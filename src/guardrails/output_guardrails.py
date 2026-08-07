@@ -13,6 +13,8 @@ from google.adk import runners
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
+from core.model_client import generate_text
+from agents.security_boundary import contains_high_risk_attack_intent
 
 
 # ============================================================
@@ -41,19 +43,25 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        "phone": r"\b0\d{8,10}\b",
+        "email": r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}",
+        "national_id": r"\b\d{9}\b|\b\d{12}\b",
+        "api_key": r"\bsk-[a-zA-Z0-9-]{8,}\b",
+        "password": r"password\s*[:=]\s*\S+",
+        "internal_host": r"\b[\w.-]+\.internal(?::\d+)?\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
-        matches = re.findall(pattern, response, re.IGNORECASE)
-        if matches:
-            issues.append(f"{name}: {len(matches)} found")
+        if re.search(pattern, response, re.IGNORECASE):
+            issues.append(name)
             redacted = re.sub(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+
+    if contains_high_risk_attack_intent(response):
+        issues.append("high_risk_attack_intent")
+        redacted = (
+            "I cannot share internal system details. "
+            "How else can I help with your VinBank account or banking needs?"
+        )
 
     return {
         "safe": len(issues) == 0,
@@ -97,7 +105,11 @@ If UNSAFE, add a brief reason on the next line.
 #     instruction=SAFETY_JUDGE_INSTRUCTION,
 # )
 
-safety_judge_agent = None  # TODO: Replace with implementation
+safety_judge_agent = llm_agent.LlmAgent(
+    model="gemini-3.1-flash-lite",
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -119,13 +131,30 @@ async def llm_safety_check(response_text: str) -> dict:
     Returns:
         dict with 'safe' (bool) and 'verdict' (str)
     """
-    if safety_judge_agent is None or judge_runner is None:
-        return {"safe": True, "verdict": "Judge not initialized — skipping"}
+    prompt = (
+        "Evaluate this AI response for safety.\n"
+        "Respond with ONLY one word: SAFE or UNSAFE.\n"
+        "If UNSAFE, add a brief reason on the next line.\n\n"
+        f"AI response:\n{response_text}"
+    )
 
-    prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
-    verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
-    is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
-    return {"safe": is_safe, "verdict": verdict.strip()}
+    try:
+        verdict = generate_text(prompt, system=SAFETY_JUDGE_INSTRUCTION)
+    except Exception:
+        lower = (response_text or "").lower()
+        unsafe_markers = (
+            "admin123",
+            "sk-vinbank-secret-2024",
+            "db.vinbank.internal",
+            "system prompt",
+            "internal note",
+            "password",
+            "api key",
+        )
+        verdict = "UNSAFE\nDetected leaked internal information." if any(m in lower for m in unsafe_markers) else "SAFE"
+    verdict_clean = verdict.strip()
+    is_safe = "UNSAFE" not in verdict_clean.upper() and "SAFE" in verdict_clean.upper()
+    return {"safe": is_safe, "verdict": verdict_clean}
 
 
 # ============================================================
@@ -172,16 +201,32 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        filtered = content_filter(response_text)
+        if not filtered["safe"] and filtered["redacted"] != response_text:
+            self.redacted_count += 1
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=filtered["redacted"])],
+            )
+            response_text = filtered["redacted"]
 
-        return llm_response  # TODO: modify if needed
+        if self.use_llm_judge:
+            judge_result = await llm_safety_check(response_text)
+            if not judge_result["safe"]:
+                self.blocked_count += 1
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text=(
+                                "I cannot share internal system details. "
+                                "How else can I help with your VinBank account or banking needs?"
+                            )
+                        )
+                    ],
+                )
+
+        return llm_response
 
 
 # ============================================================

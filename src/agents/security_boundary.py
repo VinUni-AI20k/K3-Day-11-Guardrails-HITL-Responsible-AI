@@ -26,9 +26,18 @@ SECRET_PATTERNS = (
 )
 INSTRUCTION_OVERRIDE_PATTERNS = (
     r"ignore\s+(?:all\s+)?(?:previous|above|prior)?\s*instructions?",
-    r"(?:system|developer)\s+(?:prompt|instruction)|system\s+override",
+    r"(?:system|developer)\s+(?:prompt|instruction)|system\s*override",
     r"(?:reveal|disclose|translate|encode|summarize)\b.*(?:secret|password|credential|api\s*key|internal)",
-    r"bỏ\s+qua\s+(?:mọi\s+)?hướng\s+dẫn|tiết\s+lộ\s+(?:mật\s*khẩu|api|thông\s*tin\s*nội\s*bộ)",
+    r"bỏ\s+qua\s+(?:mọi\s+)?hướng\s*dẫn|tiết\s+lộ\s+(?:mật\s*khẩu|api|thông\s*tin\s*nội\s*bộ)",
+)
+STRICT_ATTACK_PATTERNS = (
+    r"\b(dan|jailbreak|unrestricted|uncensored|developer\s*mode)\b",
+    r"\b(ignore|disregard|forget|override)\b.*\b(instructions?|rules?|policy|prompt)\b",
+    r"\b(reveal|show|print|dump|leak|expose|output)\b.*\b(system|developer|internal|hidden)\b.*\b(prompt|rules?|policy|note|config|secrets?)\b",
+    r"\b(translate|encode|decode|obfuscate|base64|rot13|hex|unicode|zero[-\s]?width)\b.*\b(prompt|instructions?|secrets?|config|policy)\b",
+    r"\b(fill in|complete|continue|repeat after me|verbatim|exactly)\b.*\b(prompt|system|instructions?|secret|password|api\s*key)\b",
+    r"\b(audit|compliance|ticket|incident|forensics|confirmation)\b.*\b(password|api\s*key|secret|credential|db\s*host|system\s*prompt)\b",
+    r"\b(password|api\s*key|secret|credential|db\s*host|connection\s*string)\b.*\b(confirm|already know|i know|tell me)\b",
 )
 
 
@@ -81,11 +90,20 @@ def contains_instruction_override(text: str) -> bool:
     return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in INSTRUCTION_OVERRIDE_PATTERNS)
 
 
+def contains_high_risk_attack_intent(text: str) -> bool:
+    """Detect direct attack intent and obfuscation attempts more aggressively."""
+    normalized = normalize_for_security(text)
+    return any(
+        re.search(pattern, normalized, re.IGNORECASE)
+        for pattern in STRICT_ATTACK_PATTERNS
+    )
+
+
 def assess_external_content(content: ExternalContent) -> ActionDecision:
     """Treat third-party content as data and reject attempts to change policy."""
     if content.trusted:
         return ActionDecision(True, "trusted source metadata", False)
-    if contains_instruction_override(content.text):
+    if contains_instruction_override(content.text) or contains_high_risk_attack_intent(content.text):
         return ActionDecision(False, "untrusted content contains an instruction override", False)
     return ActionDecision(True, "untrusted content is data only", False)
 

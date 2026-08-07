@@ -12,6 +12,7 @@ Usage:
 import sys
 import asyncio
 import argparse
+import os
 
 from core.config import setup_api_key
 
@@ -185,7 +186,9 @@ async def main(parts=None):
     Args:
         parts: List of part numbers to run, or None for all
     """
-    setup_api_key()
+    # Respect the environment loaded from .env or the shell; only
+    # fall back to offline behavior when the user has not enabled remote runs.
+    setup_api_key(parts=parts)
 
     if parts is None:
         parts = [1, 2, 3, 4]

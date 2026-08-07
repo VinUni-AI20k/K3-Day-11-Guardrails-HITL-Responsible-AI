@@ -24,6 +24,25 @@ python -m pip install -U pip
 pip install -r requirements.txt
 ```
 
+Tuỳ chọn model:
+
+- Gemini mặc định: giữ `MODEL_PROVIDER=gemini`, điền `GOOGLE_API_KEY`.
+- OpenAI cho các tác vụ gọi model trực tiếp: đặt `MODEL_PROVIDER=openai` và điền `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`.
+- Các agent ADK của lab vẫn dùng luồng Gemini của repo; OpenAI hiện được dùng cho các tác vụ gọi model trực tiếp như judge và AI attack generation.
+
+### Giao diện web Next.js
+
+Nếu bạn muốn dùng giao diện web thay vì chạy CLI:
+
+```powershell
+cd ui
+npm install
+npm run dev
+```
+
+Mở `http://127.0.0.1:3000` để xem dashboard Next.js mới. UI này tập trung vào
+pipeline guardrails, HITL và red-team lab; không còn dùng `webapp.py` cũ nữa.
+
 Mỗi lần mở terminal mới: `.\.venv\Scripts\Activate.ps1` rồi mới chạy code.
 
 Nếu PowerShell báo không cho chạy script:  
