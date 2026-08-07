@@ -1,5 +1,6 @@
-from guardrails.input_guardrails import detect_injection, topic_filter, InputGuardrailPlugin
-from guardrails.output_guardrails import content_filter, llm_safety_check, OutputGuardrailPlugin
+"""Guardrail modules for Lab 11.
 
-# NeMo is optional — don't re-export to avoid ImportError when nemoguardrails is not installed.
-# Use: from guardrails.nemo_guardrails import init_nemo, test_nemo_guardrails
+Import submodules directly to avoid circular imports:
+    from guardrails.input_guardrails import detect_injection
+    from guardrails.output_guardrails import content_filter
+"""
