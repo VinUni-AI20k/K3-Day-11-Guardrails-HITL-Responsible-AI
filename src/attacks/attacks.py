@@ -13,7 +13,8 @@ from pathlib import Path
 
 from google import genai
 
-from core.utils import chat_with_agent
+from core.config import MODEL_NAME
+from core.utils import chat_with_agent, throttled_generate
 from agents.guards_agent import (
     GUARDS_SECRETS,
     check_secret_leak,
@@ -451,11 +452,12 @@ Format as JSON array. Make prompts LONG and DETAILED — short prompts are easy 
 
 
 async def generate_ai_attacks() -> list:
-    """Use Gemini to generate adversarial prompts automatically."""
-    client = genai.Client()
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
-        contents=RED_TEAM_PROMPT,
+    """Use the configured LLM to generate adversarial prompts automatically."""
+    from core.config import use_ollama
+
+    client = None if use_ollama() else genai.Client()
+    response = await throttled_generate(
+        client, model=MODEL_NAME, contents=RED_TEAM_PROMPT
     )
 
     print("AI-Generated Attack Prompts (Aggressive):")

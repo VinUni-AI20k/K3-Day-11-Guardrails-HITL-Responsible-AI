@@ -181,7 +181,7 @@ async def main(parts=None):
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
     if not setup_api_key(prompt=False):
-        print("WARNING: GOOGLE_API_KEY not set — LLM parts may fail or use offline fallbacks.")
+        print("WARNING: No LLM backend ready — LLM parts may fail or use offline fallbacks.")
 
     if parts is None:
         parts = [1, 2, 3, 4, 5]

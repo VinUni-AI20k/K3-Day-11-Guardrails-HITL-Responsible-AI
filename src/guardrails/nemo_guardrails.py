@@ -4,6 +4,8 @@ Lab 11 — Part 2C: NeMo Guardrails
 """
 import textwrap
 
+from core.config import MODEL_NAME
+
 try:
     from nemoguardrails import RailsConfig, LLMRails
     NEMO_AVAILABLE = True
@@ -16,11 +18,11 @@ except ImportError:
 # NeMo YAML config — model and rails settings
 # ============================================================
 
-NEMO_YAML_CONFIG = textwrap.dedent("""\
+NEMO_YAML_CONFIG = textwrap.dedent(f"""\
     models:
       - type: main
         engine: google
-        model: gemini-3.1-flash-lite
+        model: {MODEL_NAME}
 
     rails:
       input:

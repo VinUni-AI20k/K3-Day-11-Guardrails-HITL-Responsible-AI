@@ -11,6 +11,7 @@ from google.adk.agents import llm_agent
 from google.adk import runners
 from google.adk.plugins import base_plugin
 
+from core.config import lab_model
 from core.utils import chat_with_agent
 
 
@@ -81,13 +82,13 @@ REASON: <one sentence>
 """
 
 safety_judge_agent = llm_agent.LlmAgent(
-    model="gemini-3.1-flash-lite",
+    model=lab_model(),
     name="safety_judge",
     instruction=SAFETY_JUDGE_INSTRUCTION,
 )
 
 multi_criteria_judge_agent = llm_agent.LlmAgent(
-    model="gemini-3.1-flash-lite",
+    model=lab_model(),
     name="multi_criteria_judge",
     instruction=MULTI_CRITERIA_JUDGE_INSTRUCTION,
 )

@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from agents.security_boundary import contains_secret, normalize_for_security
+from core.config import MODEL_NAME
+from core.utils import rate_gate
 from assignment.rate_limiter import RateLimitPlugin
 from assignment.audit_log import AuditLogPlugin
 from assignment.monitoring import MonitoringAlert
@@ -80,17 +82,6 @@ EDGE_CASES = [
     "What is 2+2?",
 ]
 
-# Canned banking replies when GOOGLE_API_KEY is absent (local/offline grading).
-_CANNED_REPLIES = {
-    "savings": "VinBank current savings interest rates range from 3.5% to 5.5% APY depending on term.",
-    "transfer": "You can transfer via the VinBank app or Internet Banking. Confirm the beneficiary and OTP before sending.",
-    "credit": "Apply for a VinBank credit card online or at a branch; bring ID and proof of income.",
-    "atm": "ATM withdrawal limits are typically 5,000,000–20,000,000 VND/day depending on card type.",
-    "joint": "Yes — visit a branch with both parties' IDs to open a joint account.",
-    "default": "Thank you for contacting VinBank. How can I help with your account or banking needs?",
-}
-
-
 @dataclass
 class PipelineResult:
     """Outcome of one request through the defense pipeline."""
@@ -122,7 +113,6 @@ class DefensePipeline:
         self.monitor = monitor or MonitoringAlert()
         self.use_llm = use_llm
         self.use_llm_judge = use_llm_judge
-        self.llm_fallbacks = 0
         self._agent = None
         self._runner = None
 
@@ -141,37 +131,14 @@ class DefensePipeline:
         ]
         self._agent, self._runner = create_protected_agent(plugins=plugins)
 
-    def _canned_reply(self, user_input: str) -> str:
-        lower = user_input.lower()
-        if "interest" in lower or "savings" in lower:
-            return _CANNED_REPLIES["savings"]
-        if "transfer" in lower:
-            return _CANNED_REPLIES["transfer"]
-        if "credit" in lower:
-            return _CANNED_REPLIES["credit"]
-        if "atm" in lower or "withdrawal" in lower:
-            return _CANNED_REPLIES["atm"]
-        if "joint" in lower or "spouse" in lower:
-            return _CANNED_REPLIES["joint"]
-        return _CANNED_REPLIES["default"]
-
     async def _call_llm(self, user_input: str) -> str:
-        has_key = bool(os.environ.get("GOOGLE_API_KEY"))
-        if not self.use_llm or not has_key:
-            return self._canned_reply(user_input)
+        if not self.use_llm:
+            return ""
         from core.utils import chat_with_agent
-        try:
-            self._ensure_agent()
-            response, _ = await chat_with_agent(self._agent, self._runner, user_input)
-        except Exception as e:
-            # A transient upstream failure (503 overload, quota, network) must not
-            # abort the suite — that would discard every outputs/*.json for the
-            # whole run. Degrade to the offline reply and keep the count visible
-            # so a degraded run is never mistaken for a clean one.
-            self.llm_fallbacks += 1
-            print(f"  LLM unavailable ({type(e).__name__}) — using offline reply.")
-            return self._canned_reply(user_input)
-        return response or self._canned_reply(user_input)
+
+        self._ensure_agent()
+        response, _ = await chat_with_agent(self._agent, self._runner, user_input)
+        return response or ""
 
     async def process(self, user_input: str, user_id: str = "default") -> PipelineResult:
         """Run one message through all defense layers."""
@@ -242,7 +209,9 @@ class DefensePipeline:
         # 4) Output guardrails + judge
         filtered = content_filter(raw)
         after = filtered["redacted"]
-        if self.use_llm_judge and os.environ.get("GOOGLE_API_KEY"):
+        from core.config import llm_ready
+
+        if self.use_llm_judge and llm_ready():
             judge = await llm_multi_criteria_judge(after)
         else:
             judge = _heuristic_multi_judge(after)
@@ -379,9 +348,7 @@ async def run_assignment_suite(pipeline: DefensePipeline | None = None, student_
         attack_results.append(_to_query_result(r))
 
     # Test 3 — rate limit: 15 requests, expect ~10 pass / 5 block.
-    # Test 3 only measures the limiter, so skip the model for it. Otherwise the
-    # 10 requests that pass burn most of the free-tier quota and the queries
-    # that genuinely need a real reply fall back to canned text.
+    # Skip the model here; this test only measures the limiter.
     pipe.rate_limiter.reset()
     rl_user = "rate_user"
     sent = passed = blocked = 0
@@ -430,7 +397,8 @@ async def run_assignment_suite(pipeline: DefensePipeline | None = None, student_
     results = {
         "student_id": student_id,
         "framework": "pure-python",
-        "llm_fallbacks": pipe.llm_fallbacks,
+        "model": MODEL_NAME,
+        "rate_gate": rate_gate.snapshot(),
         "safe_queries": safe_results,
         "attack_queries": attack_results,
         "rate_limit": {
@@ -472,10 +440,9 @@ async def main():
 
     root = Path(__file__).resolve().parents[2]
     load_dotenv(root / ".env")
-    if os.environ.get("GOOGLE_API_KEY"):
-        setup_api_key()
-    else:
-        print("No GOOGLE_API_KEY — running defense suite in offline/canned mode.")
+
+    if not setup_api_key(prompt=False):
+        raise SystemExit("No LLM backend configured — set LAB_LLM=ollama or GOOGLE_API_KEY.")
 
     results = await run_assignment_suite()
     print(json.dumps({
