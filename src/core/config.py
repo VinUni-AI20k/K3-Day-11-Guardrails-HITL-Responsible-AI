@@ -4,12 +4,24 @@ Lab 11 — Configuration & API Key Setup
 import os
 
 
-def setup_api_key():
-    """Load Google API key from environment or prompt."""
-    if "GOOGLE_API_KEY" not in os.environ:
-        os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key: ")
+def setup_api_key(*, prompt: bool = True):
+    """Load Google API key from environment or optionally prompt.
+
+    Returns True if a key is available.
+    """
+    if "GOOGLE_API_KEY" not in os.environ or not os.environ.get("GOOGLE_API_KEY"):
+        if prompt and sys_stdin_is_tty():
+            os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key: ")
+        else:
+            return False
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
     print("API key loaded.")
+    return True
+
+
+def sys_stdin_is_tty() -> bool:
+    import sys
+    return hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
 
 
 # Allowed banking topics (used by topic_filter)

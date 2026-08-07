@@ -8,12 +8,57 @@ Usage:
     python main.py --part 2     # Run only Part 2 (guardrails)
     python main.py --part 3     # Run only Part 3 (testing pipeline)
     python main.py --part 4     # Run only Part 4 (HITL design)
+    python main.py --part 5     # Run assignment defense suite (A)
 """
+import json
 import sys
 import asyncio
 import argparse
+from pathlib import Path
 
 from core.config import setup_api_key
+
+STUDENT_ID = "2A202601211"
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUTS = ROOT / "outputs"
+
+
+def _save_attack_results(unsafe_results, guards_results, ai_attacks):
+    """Write outputs/attack_results.json for submission."""
+    from attacks.attacks import normalize_ai_attacks
+
+    OUTPUTS.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "student_id": STUDENT_ID,
+        "unsafe_attacks": [
+            {
+                "id": r["id"],
+                "category": r["category"],
+                "input": r["input"],
+                "response_preview": r.get("response_preview", "")[:300],
+                "leaked": bool(r.get("leaked")),
+                "target": "unsafe",
+            }
+            for r in unsafe_results
+        ],
+        "guards_attacks": [
+            {
+                "id": r["id"],
+                "category": r["category"],
+                "input": r["input"],
+                "response_preview": r.get("response_preview", "")[:300],
+                "leaked": bool(r.get("leaked")),
+                "target": "guards",
+                "notes": "Chỉ leaked=true trên guards mới có điểm cộng",
+            }
+            for r in guards_results
+        ],
+        "ai_generated_attacks": normalize_ai_attacks(ai_attacks),
+    }
+    path = OUTPUTS / "attack_results.json"
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\nSaved {path}")
+    return payload
 
 
 async def part1_attacks():
@@ -26,7 +71,6 @@ async def part1_attacks():
     from agents.guards_agent import create_guards_agent
     from attacks.attacks import run_attacks, generate_ai_attacks
 
-    # --- Unsafe (required for hạng mục B) ---
     unsafe_agent, unsafe_runner = create_unsafe_agent()
     await test_agent(unsafe_agent, unsafe_runner)
 
@@ -35,7 +79,6 @@ async def part1_attacks():
         unsafe_agent, unsafe_runner, target_name="unsafe"
     )
 
-    # --- Guards (điểm cộng only if leaked=true here) ---
     print("\n--- Attacks on GUARDS agent (điểm cộng nếu LEAKED) ---")
     guards_agent, guards_runner = create_guards_agent()
     guards_results = await run_attacks(
@@ -50,12 +93,28 @@ async def part1_attacks():
     print(f"Guards leaks (điểm cộng): {bonus_leaks}  → +{min(10, bonus_leaks * 2)} pts if verified")
     print("=" * 60)
 
+    _save_attack_results(unsafe_results, guards_results, ai_attacks)
+
     return {
         "unsafe": unsafe_results,
         "guards": guards_results,
         "ai_attacks": ai_attacks,
     }
 
+
+async def part5_assignment_suite():
+    """Hạng mục A: run Tests 1–4 and write results/audit/metrics."""
+    print("\n" + "=" * 60)
+    print("PART 5 / Hạng mục A: Defense pipeline suite")
+    print("=" * 60)
+    from assignment.pipeline import run_assignment_suite
+    results = await run_assignment_suite(student_id=STUDENT_ID)
+    print(json.dumps({
+        "safe_blocked": sum(1 for q in results["safe_queries"] if q["blocked"]),
+        "attacks_blocked": sum(1 for q in results["attack_queries"] if q["blocked"]),
+        "rate_limit": results["rate_limit"],
+    }, indent=2))
+    return results
 
 async def part2_guardrails():
     """Part 2: Implement and test guardrails."""
@@ -145,10 +204,13 @@ async def main(parts=None):
     Args:
         parts: List of part numbers to run, or None for all
     """
-    setup_api_key()
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+    if not setup_api_key(prompt=False):
+        print("WARNING: GOOGLE_API_KEY not set — LLM parts may fail or use offline fallbacks.")
 
     if parts is None:
-        parts = [1, 2, 3, 4]
+        parts = [1, 2, 3, 4, 5]
 
     for part in parts:
         if part == 1:
@@ -159,6 +221,8 @@ async def main(parts=None):
             await part3_testing()
         elif part == 4:
             part4_hitl()
+        elif part == 5:
+            await part5_assignment_suite()
         else:
             print(f"Unknown part: {part}")
 
@@ -172,8 +236,8 @@ if __name__ == "__main__":
         description="Lab 11: Guardrails, HITL & Responsible AI"
     )
     parser.add_argument(
-        "--part", type=int, choices=[1, 2, 3, 4],
-        help="Run only a specific part (1-4). Default: run all.",
+        "--part", type=int, choices=[1, 2, 3, 4, 5],
+        help="Run only a specific part (1-5). Default: run all.",
     )
     args = parser.parse_args()
 
