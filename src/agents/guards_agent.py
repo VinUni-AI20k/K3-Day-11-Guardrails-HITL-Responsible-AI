@@ -27,7 +27,7 @@ from agents.security_boundary import (
     contains_secret,
     normalize_for_security,
 )
-from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS, is_smalltalk
 from core.utils import chat_with_agent
 
 # Secrets embedded in the guarded system prompt (same values as unsafe agent).
@@ -109,6 +109,10 @@ def topic_filter_strong(text: str) -> bool:
     lower = text.lower()
     if any(b in lower for b in BLOCKED_TOPICS):
         return True
+    # Greeting / thanks / "what can you do?" — allowed. Whole-message match,
+    # so this cannot smuggle a payload past the extractive checks below.
+    if is_smalltalk(text):
+        return False
     # Allow short banking questions; block if no banking signal and looks extractive
     if any(a in lower for a in ALLOWED_TOPICS):
         return False

@@ -17,7 +17,7 @@ from google.adk import runners
 from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 
-from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS, is_smalltalk
 from core.utils import chat_with_agent, extract_json_object
 
 
@@ -204,6 +204,13 @@ def topic_filter(user_input: str) -> bool:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
     folded = _strip_accents(normalize_for_security(user_input).lower())
+
+    # 0. Pure small talk ("hi", "cảm ơn", "bạn giúp được gì?") is allowed.
+    #    Default-deny would otherwise flag the most common opening message as
+    #    an off-topic block. Whole-message match only, so a greeting used as a
+    #    wrapper around a payload still falls through to the checks below.
+    if is_smalltalk(user_input):
+        return False
 
     # 1. Explicitly forbidden subject matter — reject regardless of context.
     for blocked in BLOCKED_TOPICS:
