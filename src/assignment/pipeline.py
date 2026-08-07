@@ -122,6 +122,7 @@ class DefensePipeline:
         self.monitor = monitor or MonitoringAlert()
         self.use_llm = use_llm
         self.use_llm_judge = use_llm_judge
+        self.llm_fallbacks = 0
         self._agent = None
         self._runner = None
 
@@ -159,8 +160,17 @@ class DefensePipeline:
         if not self.use_llm or not has_key:
             return self._canned_reply(user_input)
         from core.utils import chat_with_agent
-        self._ensure_agent()
-        response, _ = await chat_with_agent(self._agent, self._runner, user_input)
+        try:
+            self._ensure_agent()
+            response, _ = await chat_with_agent(self._agent, self._runner, user_input)
+        except Exception as e:
+            # A transient upstream failure (503 overload, quota, network) must not
+            # abort the suite — that would discard every outputs/*.json for the
+            # whole run. Degrade to the offline reply and keep the count visible
+            # so a degraded run is never mistaken for a clean one.
+            self.llm_fallbacks += 1
+            print(f"  LLM unavailable ({type(e).__name__}) — using offline reply.")
+            return self._canned_reply(user_input)
         return response or self._canned_reply(user_input)
 
     async def process(self, user_input: str, user_id: str = "default") -> PipelineResult:
@@ -368,10 +378,15 @@ async def run_assignment_suite(pipeline: DefensePipeline | None = None, student_
         r = await pipe.process(q, user_id="attack_user")
         attack_results.append(_to_query_result(r))
 
-    # Test 3 — rate limit: 15 requests, expect ~10 pass / 5 block
+    # Test 3 — rate limit: 15 requests, expect ~10 pass / 5 block.
+    # Test 3 only measures the limiter, so skip the model for it. Otherwise the
+    # 10 requests that pass burn most of the free-tier quota and the queries
+    # that genuinely need a real reply fall back to canned text.
     pipe.rate_limiter.reset()
     rl_user = "rate_user"
     sent = passed = blocked = 0
+    llm_enabled = pipe.use_llm
+    pipe.use_llm = False
     for i in range(15):
         r = await pipe.process(
             "What is the current savings interest rate?",
@@ -382,6 +397,7 @@ async def run_assignment_suite(pipeline: DefensePipeline | None = None, student_
             blocked += 1
         else:
             passed += 1
+    pipe.use_llm = llm_enabled
 
     # Test 4 — edge cases
     pipe.rate_limiter.reset()
@@ -414,6 +430,7 @@ async def run_assignment_suite(pipeline: DefensePipeline | None = None, student_
     results = {
         "student_id": student_id,
         "framework": "pure-python",
+        "llm_fallbacks": pipe.llm_fallbacks,
         "safe_queries": safe_results,
         "attack_queries": attack_results,
         "rate_limit": {
