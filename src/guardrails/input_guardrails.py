@@ -146,6 +146,10 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         super().__init__(name="input_guardrail")
         self.blocked_count = 0
         self.total_count = 0
+        # Verdict handed from on_user_message_callback to before_model_callback.
+        # Single-slot because one runner serves one invocation at a time here;
+        # a concurrent deployment would key this by invocation id.
+        self._pending_block: str | None = None
 
     def _extract_text(self, content: types.Content) -> str:
         """Extract plain text from a Content object."""
@@ -178,22 +182,68 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # Injection first: an injection attempt is an attack even when it is
-        # dressed up in on-topic banking vocabulary, so it must not be able to
-        # pass by satisfying the topic allowlist.
+        message = self._verdict(text)
+        if message is None:
+            self._pending_block = None
+            return None
+
+        self.blocked_count += 1
+        # Remember the verdict for before_model_callback, which is the callback
+        # that can actually stop the model call, then replace the attack text so
+        # the payload never reaches the prompt even if the run continues.
+        self._pending_block = message
+        return self._block_response(message)
+
+    def _verdict(self, text: str) -> str | None:
+        """Return the block message for this text, or None when it may proceed.
+
+        Injection is checked first: an injection attempt is an attack even when
+        it is dressed up in on-topic banking vocabulary, so it must not pass by
+        satisfying the topic allowlist.
+        """
         if detect_injection(text):
-            self.blocked_count += 1
-            return self._block_response(
+            return (
                 "I cannot process that request. I only help with VinBank banking questions."
             )
-
         if topic_filter(text):
-            self.blocked_count += 1
-            return self._block_response(
+            return (
                 "I'm a VinBank assistant and can only help with banking-related questions."
             )
-
         return None
+
+    async def before_model_callback(self, *, callback_context, llm_request):
+        """Hard gate: stop a blocked request before the model is ever called.
+
+        Why this exists on top of on_user_message_callback: per the ADK
+        contract that callback only *replaces* the user message — the model
+        still runs and still answers. Only a non-None return here short-circuits
+        the LLM call, so this is the callback that actually fails closed, and it
+        also saves the token cost of an attack we already decided to reject.
+        """
+        from google.adk.models import llm_response as llm_response_module
+
+        message = self._pending_block
+        self._pending_block = None
+
+        if message is None:
+            # Defence in depth: also gate content that never passed through
+            # on_user_message_callback (sub-agent hops, tool-driven turns).
+            text = ""
+            for content in getattr(llm_request, "contents", None) or []:
+                if getattr(content, "role", None) == "user" and content.parts:
+                    text += "".join(
+                        p.text for p in content.parts if getattr(p, "text", None)
+                    )
+            message = self._verdict(text)
+
+        if message is None:
+            return None
+
+        return llm_response_module.LlmResponse(
+            content=types.Content(
+                role="model", parts=[types.Part.from_text(text=message)]
+            )
+        )
 
 
 # ============================================================
