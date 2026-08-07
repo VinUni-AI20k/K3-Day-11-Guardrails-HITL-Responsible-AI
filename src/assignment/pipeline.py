@@ -10,6 +10,7 @@ that stopped a request.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import urlparse
 
@@ -19,13 +20,17 @@ from assignment.monitoring import MonitoringAlert
 from agents.security_boundary import TRUSTED_EGRESS_HOSTS, contains_secret
 
 
-# PII that must never leave the agent even toward an allowlisted host.
-EGRESS_PII_PATTERNS = (
-    r"\b0\d{9,10}\b",                          # VN phone
-    r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}",          # email
-    r"\b\d{12}\b",                             # CCCD
-    r"\b(?:\d{4}[ -]?){3}\d{4}\b",             # card number
-)
+def egress_pii_patterns() -> tuple[str, ...]:
+    """PII/credential patterns that must never leave, even toward a trusted host.
+
+    Reuses guardrails.output_guardrails.PII_PATTERNS instead of keeping a second
+    copy: a pattern added for redaction (JWT, PEM key, cloud API key, IP) has to
+    guard the egress sink too, and two hand-maintained lists always drift apart.
+    Imported lazily to keep this module importable without the ADK stack.
+    """
+    from guardrails.output_guardrails import PII_PATTERNS
+
+    return tuple(PII_PATTERNS.values())
 
 
 def is_egress_allowed(destination: str, payload: str) -> bool:
@@ -56,7 +61,7 @@ def is_egress_allowed(destination: str, payload: str) -> bool:
     if contains_secret(payload or ""):
         return False
 
-    for pattern in EGRESS_PII_PATTERNS:
+    for pattern in egress_pii_patterns():
         if re.search(pattern, payload or "", re.IGNORECASE):
             return False
 
@@ -128,6 +133,27 @@ EDGE_CASES = [
 ]
 
 
+async def _retry_on_quota(coro_factory, *, attempts: int = 3, base_delay: float = 12.0):
+    """Await coro_factory(), retrying transient 429 RESOURCE_EXHAUSTED replies.
+
+    Why: the free Gemini tier limits requests per minute, and a quota bounce is
+    an availability failure, not a security decision. Without this a 429 lands
+    in results.json as layer="error" and pollutes the block-rate metric that
+    monitoring alerts on.
+    """
+    delay = base_delay
+    for attempt in range(1, attempts + 1):
+        try:
+            return await coro_factory()
+        except Exception as e:
+            transient = "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)
+            if not transient or attempt == attempts:
+                raise
+            print(f"    quota hit, retrying in {delay:.0f}s ({attempt}/{attempts - 1})")
+            await asyncio.sleep(delay)
+            delay *= 2
+
+
 async def _run_one(
     query: str,
     *,
@@ -186,7 +212,9 @@ async def _run_one(
         )
 
     try:
-        response, _ = await chat_with_agent(agent, runner, query)
+        response, _ = await _retry_on_quota(
+            lambda: chat_with_agent(agent, runner, query)
+        )
     except Exception as e:
         return _finish(True, "error", f"Error: {type(e).__name__}: {e}")
 
