@@ -15,6 +15,9 @@ import argparse
 
 from core.config import setup_api_key
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 async def part1_attacks():
     """Hạng mục B: attack unsafe agent, then try guards agent (điểm cộng)."""
@@ -159,24 +162,14 @@ async def part5_assignment_suite():
         run_assignment_suite,
     )
 
-    student_id = os.environ.get("STUDENT_ID", "").strip() or "SE00000"
-    try:
-        plugins = build_production_plugins()
-        audit, monitor = build_observability()
-        pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor}
-        result = await run_assignment_suite(pipeline, student_id=student_id)
-        print("Suite finished.")
-        print(f"Wrote outputs under repo outputs/ (student_id={student_id})")
-        return result
-    except NotImplementedError as e:
-        print(
-            "Chưa implement TODO 8 / run_assignment_suite trong "
-            "src/assignment/pipeline.py — hoàn thành rồi chạy lại:\n"
-            "  cd src\n"
-            "  python main.py --part 5"
-        )
-        print(f"Detail: {e}")
-        return None
+    student_id = os.environ.get("STUDENT_ID", "").strip() or "2A202601873"
+    plugins = build_production_plugins()
+    audit, monitor = build_observability()
+    pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor}
+    result = await run_assignment_suite(pipeline, student_id=student_id)
+    print("Suite finished.")
+    print(f"Wrote outputs under repo outputs/ (student_id={student_id})")
+    return result
 
 
 async def main(parts=None):
