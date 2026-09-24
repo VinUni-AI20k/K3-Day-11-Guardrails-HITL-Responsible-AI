@@ -1,7 +1,7 @@
 """
-Assignment 11 — Defense-in-depth pipeline assembly (TODO).
+Checkpoint 3 — Defense-in-depth pipeline assembly.
 
-Wire rate limiter + lab guardrails + judge + audit + monitoring.
+Wire rate limiter + lab guardrails + audit + monitoring + egress.
 You may use Google ADK plugins, LangGraph, NeMo, or pure Python.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from assignment.monitoring import MonitoringAlert
 
 
 def is_egress_allowed(destination: str, payload: str) -> bool:
-    """TODO 8A: Enforce a destination allowlist before any data leaves the agent.
+    """Enforce a destination allowlist before any data leaves the agent.
 
     Return ``True`` only for an approved VinBank HTTPS endpoint and ordinary
     banking payload. Return ``False`` for unknown domains and payloads that
@@ -26,15 +26,14 @@ def build_production_plugins(
     *,
     max_requests: int = 10,
     window_seconds: int = 60,
-    use_llm_judge: bool = True,
+    use_llm_judge: bool = False,
 ) -> list:
-    """
-    TODO 8: Return an ordered list of plugins / layers:
+    """Return an ordered list of plugins / layers:
 
     1. RateLimitPlugin
     2. InputGuardrailPlugin  (from guardrails.input_guardrails)
-    3. OutputGuardrailPlugin / LlmJudge  (from guardrails.output_guardrails)
-    4. (optional) NeMo wrapper
+    3. OutputGuardrailPlugin  (from guardrails.output_guardrails)
+       (LLM-as-Judge / NeMo are optional)
 
     Audit/monitoring can be plugins or side observers — document your choice.
     The action gateway calls ``is_egress_allowed`` separately before any sink.
@@ -43,13 +42,12 @@ def build_production_plugins(
 
 
 def build_observability():
-    """TODO: return (AuditLogPlugin(), MonitoringAlert())."""
+    """Return (AuditLogPlugin(), MonitoringAlert())."""
     raise NotImplementedError("Implement build_observability")
 
 
 async def run_assignment_suite(pipeline, student_id: str) -> dict:
-    """
-    TODO: Run Tests 1–4 from assignment11.md and
+    """Run Tests 1–4 from CHECKPOINTS.md (Checkpoint 3) and
     return a dict matching schemas/results.schema.json.
 
     Write:

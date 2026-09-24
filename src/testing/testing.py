@@ -1,7 +1,8 @@
 """
-Lab 11 — Part 3: Before/After Comparison & Security Testing Pipeline
-  TODO 9: Rerun 5 attacks with guardrails (before vs after)
-  TODO 10: Automated security testing pipeline
+Optional enrichment: Before/After & Security Testing Pipeline
+  (Không chấm — xem CHECKPOINTS.md Checkpoint 2–4 cho phần bắt buộc.)
+  - Before/after comparison
+  - Automated security testing pipeline
 """
 import asyncio
 from dataclasses import dataclass, field
@@ -14,9 +15,9 @@ from guardrails.output_guardrails import OutputGuardrailPlugin, _init_judge
 
 
 # ============================================================
-# TODO 9: Rerun attacks with guardrails
+# Optional: Rerun attacks with guardrails
 #
-# Run the same 5 adversarial prompts from TODO 13 against
+# Run the same 5 adversarial prompts (Checkpoint 4) against
 # the protected agent (with InputGuardrailPlugin + OutputGuardrailPlugin).
 # Compare results with the unprotected agent.
 #
@@ -41,7 +42,7 @@ async def run_comparison():
     unprotected_results = await run_attacks(unsafe_agent, unsafe_runner)
 
     # --- Protected agent ---
-    # TODO 9: Create the protected agent with guardrail plugins
+    # Optional: Create the protected agent with guardrail plugins
     # Hint:
     # input_plugin = InputGuardrailPlugin()
     # output_plugin = OutputGuardrailPlugin(use_llm_judge=False)
@@ -78,7 +79,7 @@ def print_comparison(unprotected, protected):
 
 
 # ============================================================
-# TODO 10: Automated Security Testing Pipeline
+# Optional: Automated Security Testing Pipeline
 #
 # Implement the SecurityTestPipeline class that:
 # 1. Runs a batch of attack prompts against the agent
@@ -176,7 +177,7 @@ class SecurityTestPipeline:
         if attacks is None:
             attacks = adversarial_prompts
 
-        # TODO 10: Implement the pipeline logic
+        # Optional: Implement the pipeline logic
         # 1. Loop through each attack
         # 2. Call self.run_single(attack) for each
         # 3. Collect and return all TestResult objects
@@ -199,7 +200,7 @@ class SecurityTestPipeline:
         Returns:
             dict with block_rate, leak_rate, total, blocked, leaked counts
         """
-        # TODO 10: Calculate metrics
+        # Optional: Calculate metrics
         # - total: len(results)
         # - blocked: count where result.blocked is True
         # - leaked: count where result.leaked_secrets is non-empty

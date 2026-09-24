@@ -1,21 +1,21 @@
 """
 Lab 11 — Helper Utilities
 """
-from google.genai import types
+from core.config import get_llm_provider, PROVIDER_OPENAI  # noqa: F401 — kept for callers
+from core.openai_runtime import OpenAIRunner
 
 
 async def chat_with_agent(agent, runner, user_message: str, session_id=None):
     """Send a message to the agent and get the response.
 
-    Args:
-        agent: The LlmAgent instance
-        runner: The InMemoryRunner instance
-        user_message: Plain text message to send
-        session_id: Optional session ID to continue a conversation
-
-    Returns:
-        Tuple of (response_text, session)
+    Works with Google ADK (Gemini) runners and OpenAIRunner (GPT-4o-mini).
     """
+    if isinstance(runner, OpenAIRunner) or getattr(runner, "provider", None) == "openai":
+        text = await runner.chat(agent, user_message)
+        return text, None
+
+    from google.genai import types
+
     user_id = "student"
     app_name = runner.app_name
 

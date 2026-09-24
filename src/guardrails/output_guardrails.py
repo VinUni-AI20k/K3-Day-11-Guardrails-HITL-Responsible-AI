@@ -1,8 +1,8 @@
 """
-Lab 11 — Part 2B: Output Guardrails
-  TODO 4: Content filter (PII, secrets)
-  TODO 5: LLM-as-Judge safety check
-  TODO 6: Output Guardrail Plugin (ADK)
+Checkpoint 2 — Output Guardrails
+  - content_filter (PII, secrets)          ← bắt buộc
+  - OutputGuardrailPlugin (ADK)           ← bắt buộc
+  - LLM-as-Judge                          ← optional (không chấm)
 """
 import re
 import textwrap
@@ -16,7 +16,7 @@ from core.utils import chat_with_agent
 
 
 # ============================================================
-# TODO 4: Implement content_filter()
+# Implement content_filter()
 #
 # Check if the response contains PII (personal info), API keys,
 # passwords, or inappropriate content.
@@ -63,7 +63,7 @@ def content_filter(response: str) -> dict:
 
 
 # ============================================================
-# TODO 5: Implement LLM-as-Judge
+# OPTIONAL (không chấm): LLM-as-Judge
 #
 # Create a separate agent (judge) to check response safety.
 # The judge classifies responses as SAFE or UNSAFE.
@@ -92,7 +92,7 @@ If UNSAFE, add a brief reason on the next line.
 # TODO: Create safety_judge_agent using LlmAgent
 # Hint:
 # safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-2.0-flash",
+#     model="gemini-3.5-flash",
 #     name="safety_judge",
 #     instruction=SAFETY_JUDGE_INSTRUCTION,
 # )
@@ -129,7 +129,7 @@ async def llm_safety_check(response_text: str) -> dict:
 
 
 # ============================================================
-# TODO 6: Implement OutputGuardrailPlugin
+# Implement OutputGuardrailPlugin
 #
 # This plugin checks the agent's output BEFORE sending to the user.
 # Uses after_model_callback to intercept LLM responses.

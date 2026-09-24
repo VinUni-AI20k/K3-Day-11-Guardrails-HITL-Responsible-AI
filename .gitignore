@@ -144,12 +144,17 @@ ENV/
 env.bak/
 venv.bak/
 
-# Local grade / run outputs
+# Local grade / run outputs (generated — do not commit placeholders)
 outputs/grade_report.json
 outputs/results.json
 outputs/attack_results.json
+outputs/unsafe_attack_result.json
+outputs/guards_attack_result.json
 outputs/audit_log.json
 outputs/metrics.json
+# Keep outputs/.gitkeep only; sample demos optional and regenerable
+outputs/guards_attack_demo.json
+outputs/*_attack_demo.json
 
 # Spyder project settings
 .spyderproject
@@ -212,3 +217,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+template-codelabs

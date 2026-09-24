@@ -8,7 +8,7 @@ def test_required_docs_exist():
     for rel in [
         "README.md",
         "SUBMISSION.md",
-        "assignment11.md",
+        "CHECKPOINTS.md",
         ".env.example",
         "requirements.txt",
         "schemas/results.schema.json",

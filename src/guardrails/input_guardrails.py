@@ -1,8 +1,8 @@
 """
-Lab 11 — Part 2A: Input Guardrails
-  TODO 1: Injection detection (normalization + layered signals)
-  TODO 2: Topic filter
-  TODO 3: Input Guardrail Plugin (ADK)
+Checkpoint 2 — Input Guardrails
+  - detect_injection (normalization + layered signals)
+  - topic_filter
+  - InputGuardrailPlugin (ADK)
 """
 import re
 
@@ -14,7 +14,7 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 
 
 # ============================================================
-# TODO 1: Implement detect_injection()
+# Implement detect_injection()
 #
 # Canonicalize Unicode/invisible spacing, then detect prompt injection.
 # The function takes user_input (str) and returns True if injection is detected.
@@ -54,7 +54,7 @@ def detect_injection(user_input: str) -> bool:
 
 
 # ============================================================
-# TODO 2: Implement topic_filter()
+# Implement topic_filter()
 #
 # Check if user_input belongs to allowed topics.
 # The VinBank agent should only answer about: banking, account,
@@ -83,7 +83,7 @@ def topic_filter(user_input: str) -> bool:
 
 
 # ============================================================
-# TODO 3: Implement InputGuardrailPlugin
+# Implement InputGuardrailPlugin
 #
 # This plugin blocks bad input BEFORE it reaches the LLM.
 # Fill in the on_user_message_callback method.

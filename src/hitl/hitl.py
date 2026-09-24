@@ -1,13 +1,14 @@
 """
-Lab 11 — Part 4: Human-in-the-Loop Design
-  TODO 11: Confidence Router
-  TODO 12: Design 3 HITL decision points
+Lab 11 — Optional enrichment: Human-in-the-Loop Design
+  (Không chấm — HITL core trả lời ngắn trong report.)
+  - Confidence Router
+  - 3 HITL decision points
 """
 from dataclasses import dataclass
 
 
 # ============================================================
-# TODO 11: Implement ConfidenceRouter
+# Optional enrichment: ConfidenceRouter (không chấm)
 #
 # Route agent responses based on confidence scores:
 #   - HIGH (>= 0.9): Auto-send to user
@@ -65,7 +66,7 @@ class ConfidenceRouter:
         Returns:
             RoutingDecision with routing action and metadata
         """
-        # TODO 11: Implement routing logic
+        # Optional: Implement routing logic
         #
         # 1. Check if action_type is in HIGH_RISK_ACTIONS
         #    -> If yes: always escalate (action="escalate", priority="high",
@@ -94,7 +95,8 @@ class ConfidenceRouter:
 
 
 # ============================================================
-# TODO 12: Design 3 HITL decision points + a review lifecycle
+# Optional enrichment: 3 HITL decision points (không chấm)
+# Core lab: viết ngắn trong report thay vì implement list này.
 #
 # For each decision point, define:
 # - trigger: What condition activates this HITL check?
